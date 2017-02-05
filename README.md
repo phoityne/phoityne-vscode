@@ -2,13 +2,16 @@
 
 # Phoityne VSCode
 
-[Phoityne](https://sites.google.com/site/phoityne/vscode) is a ghci debug viewer for Visual Studio Code.
+Phoityne is a ghci debug viewer for Visual Studio Code.
 
 
 ## Information
 
-* phoityne-vscode released.  
+* [2017/02/05] phoityne-vscode released.  
+  * Marketplace [phoityne-vscode-0.0.10](https://marketplace.visualstudio.com/items?itemName=phoityne.phoityne-vscode)
+  * hackage [phoityne-vscode-0.0.12.0](https://hackage.haskell.org/package/phoityne-vscode)  
 * Release Summary
+  * FIX [8](https://github.com/phoityne/phoityne-vscode/issues/8) : Unterminated process after leaving GHCi
 
 
 ![01_debug.gif](https://raw.githubusercontent.com/phoityne/phoityne-vscode/master/docs/01_debug.gif)
@@ -74,6 +77,17 @@ The variable added to watch will be forced.
 
 ![04_condition.gif](https://raw.githubusercontent.com/phoityne/phoityne-vscode/master/docs/04_condition.gif)
 
+### Hit count break condition
+
+Supports these operators.
+*  ==
+*  /=
+*  <, >
+*  <=, >=
+*  mod, %
+*  just digit is same with '>='
+
+![07_hit_count.gif](https://raw.githubusercontent.com/phoityne/phoityne-vscode/master/docs/07_hit_count.gif)
 
 ### Repl & Completions
 
@@ -84,6 +98,7 @@ The variable added to watch will be forced.
 * supportsConfigurationDoneRequest : yes
 * supportsFunctionBreakpoints : yes
 * supportsConditionalBreakpoints : yes
+* supportsHitConditionalBreakpoints : yes
 * supportsEvaluateForHovers : yes
 * exceptionBreakpointFilters : no
 * supportsStepBack : no
@@ -92,7 +107,12 @@ The variable added to watch will be forced.
 * supportsGotoTargetsRequest : no
 * supportsStepInTargetsRequest : no
 * supportsCompletionsRequest : yes
-
+* supportsModulesRequest : no
+* additionalModuleColumns : no
+* supportedChecksumAlgorithms : no
+* supportsRestartRequest : no
+* supportsExceptionOptions : no
+* supportsValueFormattingOptions : no
 
 ## Configuration
 
@@ -117,6 +137,14 @@ The variable added to watch will be forced.
 
 
 ## Version history
+
+* [2016/12/18] phoityne-vscode released.  
+  * Marketplace [phoityne-vscode-0.0.9](https://marketplace.visualstudio.com/items?itemName=phoityne.phoityne-vscode)
+  * hackage [phoityne-vscode-0.0.11.0](https://hackage.haskell.org/package/phoityne-vscode)  
+
+* [2016/10/09] phoityne-vscode released.  
+  * Marketplace [phoityne-vscode-0.0.8](https://marketplace.visualstudio.com/items?itemName=phoityne.phoityne-vscode)
+  * hackage [phoityne-vscode-0.0.10.0](https://hackage.haskell.org/package/phoityne-vscode)  
 
 * [2016/09/19] for VSCode-1.5, updated vscode extension and haskell library. Please use new versions.
   * Marketplace [phoityne-vscode-0.0.7](https://marketplace.visualstudio.com/items?itemName=phoityne.phoityne-vscode)
