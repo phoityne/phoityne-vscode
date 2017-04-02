@@ -12,7 +12,6 @@ Phoityne is a ghci debug viewer for Visual Studio Code.
   * hackage [phoityne-vscode-0.0.13.0](https://hackage.haskell.org/package/phoityne-vscode)  
 * Release Summary
   * FIX [10](https://github.com/phoityne/phoityne-vscode/issues/10) : Unable to set breakpoints
-  * FIX [11](https://github.com/phoityne/phoityne-vscode/issues/11) : Debugger not progressing past IO
   * ADD [12](https://github.com/phoityne/phoityne-vscode/issues/12) : support Column breakpoints
   * MODIFY [6](https://github.com/phoityne/phoityne-vscode/issues/6) : add "stopOnEntry" setting to launch.json 
   * MODIFY : add "--ghci-options -fprint-evld-with-show" to ghci command option in launch.json, instead of hard-coded.
