@@ -1,10 +1,16 @@
 
+20170507 phoityne-vscode-0.0.14.0
+  * [ADD] [15](https://github.com/phoityne/phoityne-vscode/issues/15) : adding main args setting to launch.json
+  * [FIX] [16](https://github.com/phoityne/phoityne-vscode/issues/16) : Exit on stdin eof
+
+
 20170402 phoityne-vscode-0.0.13.0
   * [FIX] [10](https://github.com/phoityne/phoityne-vscode/issues/10) : Unable to set breakpoints
   * [FIX] [11](https://github.com/phoityne/phoityne-vscode/issues/11) : Debugger not progressing past IO
   * [ADD] [12](https://github.com/phoityne/phoityne-vscode/issues/12) : support Column break points
   * [MODIFY] [6](https://github.com/phoityne/phoityne-vscode/issues/6) : adding stopOnEntry setting on launch.json 
   * [MODIFY] : add ghci-options -fprint-evld-with-show to stack run command in launch.json file.
+
 
 20170205 phoityne-vscode-0.0.12.0
   * [FIX] [8](https://github.com/phoityne/phoityne-vscode/issues/8) : Unterminated process after leaving GHCi 

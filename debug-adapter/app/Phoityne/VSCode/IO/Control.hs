@@ -9,6 +9,7 @@
 
 module Phoityne.VSCode.IO.Control where
 
+import Phoityne.VSCode.Constant
 import Phoityne.VSCode.Utility
 import qualified Phoityne.VSCode.Argument as A
 import qualified Phoityne.VSCode.IO.Core as GUI
@@ -16,8 +17,9 @@ import qualified Data.ByteString.Lazy as BSL
 
 import System.IO
 import Control.Concurrent
-import qualified Data.ConfigFile as C
 import Text.Parsec
+import qualified Data.ConfigFile as C
+import qualified System.Log.Logger as L
 
 -- |
 -- 
@@ -44,25 +46,32 @@ run _ _ = do
 wait :: MVar GUI.DebugContextData -> IO ()
 wait mvarDat = go BSL.empty
   where
-    go :: BSL.ByteString -> IO ()
-    go buf = do
-      c <- BSL.hGet stdin 1
-      let newBuf = BSL.append buf c
-      case readContentLength (lbs2str newBuf) of
-        Left _ -> go newBuf
-        Right len -> do
-          cnt <- BSL.hGet stdin len
-          GUI.handleRequest mvarDat newBuf cnt
-          wait mvarDat
+    go buf = BSL.hGet stdin 1 >>= withC buf
     
-      where
-        readContentLength :: String -> Either ParseError Int
-        readContentLength = parse parser "readContentLength"
+    withC buf c
+      | c == BSL.empty = unexpectedEOF
+      | otherwise      = withBuf $ BSL.append buf c
     
-        parser = do
-          string "Content-Length: "
-          len <- manyTill digit (string _TWO_CRLF)
-          return . read $ len
+    withBuf buf = case parse parser "readContentLength" (lbs2str buf) of
+        Left _    -> go buf
+        Right len -> BSL.hGet stdin len >>= withCnt buf
+
+    withCnt buf cnt
+      | cnt == BSL.empty = unexpectedEOF
+      | otherwise        = do
+        GUI.handleRequest mvarDat buf cnt
+        wait mvarDat
+
+    parser = do
+      string "Content-Length: "
+      len <- manyTill digit (string _TWO_CRLF)
+      return . read $ len
+
+    unexpectedEOF = do
+      L.criticalM _LOG_NAME "unexpected EOF on stdin."
+      return ()
+
+
 
 -- |
 --
@@ -72,10 +81,4 @@ sendResponse str = do
   BSL.hPut stdout $ str2lbs _TWO_CRLF
   BSL.hPut stdout str
   hFlush stdout
-
--- |
---
---
-_TWO_CRLF :: String
-_TWO_CRLF = "\r\n\r\n"
 

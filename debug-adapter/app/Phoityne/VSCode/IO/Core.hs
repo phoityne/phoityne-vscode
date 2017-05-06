@@ -175,12 +175,6 @@ _INITIAL_RESPONSE_SEQUENCE = 0
 -- |
 --
 --
-_TWO_CRLF :: String
-_TWO_CRLF = "\r\n\r\n"
-
--- |
---
---
 _SEP_WIN :: Char
 _SEP_WIN = '\\'
 

@@ -72,3 +72,10 @@ _AVAILABLE_FILE_EXT = [ ".hs"
 _NO_BREAK_POINT_LOCATION :: String
 _NO_BREAK_POINT_LOCATION = "No breakpoints found at that location."
 
+
+-- |
+--
+--
+_TWO_CRLF :: String
+_TWO_CRLF = "\r\n\r\n"
+
