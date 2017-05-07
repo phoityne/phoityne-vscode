@@ -136,9 +136,10 @@
 					"logLevel": "WARNING",
 					"ghciPrompt": "H>>= ",
 					"ghciCmd": "stack ghci --test --no-load --no-build --main-is TARGET",
-					"ghciEnv": [],
+					"ghciEnv": {},
 					"stopOnEntry": true,
-					"hackageVersion": "0.0.14.0"
+					"hackageVersion": "0.0.14.0",
+					"mainArgs": ""
 				}
 			]
 		}]

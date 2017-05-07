@@ -7,15 +7,12 @@ Phoityne is a ghci debug viewer for Visual Studio Code.
 
 ## Information
 
-* [2017/04/02] phoityne-vscode released.  
-  * Marketplace [phoityne-vscode-0.0.11](https://marketplace.visualstudio.com/items?itemName=phoityne.phoityne-vscode)
-  * hackage [phoityne-vscode-0.0.13.0](https://hackage.haskell.org/package/phoityne-vscode)  
+* [2017/05/07] phoityne-vscode released.  
+  * Marketplace [phoityne-vscode-0.0.12](https://marketplace.visualstudio.com/items?itemName=phoityne.phoityne-vscode)
+  * hackage [phoityne-vscode-0.0.14.0](https://hackage.haskell.org/package/phoityne-vscode)  
 * Release Summary
-  * FIX [10](https://github.com/phoityne/phoityne-vscode/issues/10) : Unable to set breakpoints
-  * ADD [12](https://github.com/phoityne/phoityne-vscode/issues/12) : support Column breakpoints
-  * MODIFY [6](https://github.com/phoityne/phoityne-vscode/issues/6) : add "stopOnEntry" setting to launch.json 
-  * MODIFY : add "--ghci-options -fprint-evld-with-show" to ghci command option in launch.json, instead of hard-coded.
-
+  * ADD [15](https://github.com/phoityne/phoityne-vscode/issues/15) : adding main args setting to launch.json
+  * FIX [16](https://github.com/phoityne/phoityne-vscode/issues/16) : Exit on stdin eof
 
 
 ![01_debug.gif](https://raw.githubusercontent.com/phoityne/phoityne-vscode/master/docs/01_debug.gif)
@@ -57,7 +54,7 @@ Add 'phoityne-vscode.exe' to PATH environment.
     C:\Users\[user name]\AppData\Roaming\local\bin\phoityne-vscode.exe
     
     % phoityne-vscode --version
-    phoityne-vscode-0.0.13.0
+    phoityne-vscode-0.0.14.0
     %
     % code
 
@@ -145,6 +142,7 @@ Supports these operators.
 |stopOnEntry|required|true|stop or not after debugger launched.
 |logFile|required|${workspaceRoot}/.vscode/phoityne.log|internal log file.|
 |logLevel|required|WARNING|internal log level.|
+|mainArgs|optional|-|main arguments.|
 
 ### __.vscode/tasks.json__
 
@@ -155,33 +153,3 @@ Supports these operators.
 |stack test|required|stack test|task definition for F8 shortcut key.|
 |stack watch|required|stack build --test --no-run-tests --file-watch|task definition for F6 shortcut key.|
 
-
-## Version history
-
-* [2017/02/05] phoityne-vscode released.  
-  * Marketplace [phoityne-vscode-0.0.10](https://marketplace.visualstudio.com/items?itemName=phoityne.phoityne-vscode)
-  * hackage [phoityne-vscode-0.0.12.0](https://hackage.haskell.org/package/phoityne-vscode)  
-
-* [2016/12/18] phoityne-vscode released.  
-  * Marketplace [phoityne-vscode-0.0.9](https://marketplace.visualstudio.com/items?itemName=phoityne.phoityne-vscode)
-  * hackage [phoityne-vscode-0.0.11.0](https://hackage.haskell.org/package/phoityne-vscode)  
-
-* [2016/10/09] phoityne-vscode released.  
-  * Marketplace [phoityne-vscode-0.0.8](https://marketplace.visualstudio.com/items?itemName=phoityne.phoityne-vscode)
-  * hackage [phoityne-vscode-0.0.10.0](https://hackage.haskell.org/package/phoityne-vscode)  
-
-* [2016/09/19] for VSCode-1.5, updated vscode extension and haskell library. Please use new versions.
-  * Marketplace [phoityne-vscode-0.0.7](https://marketplace.visualstudio.com/items?itemName=phoityne.phoityne-vscode)
-  * hackage [phoityne-vscode-0.0.9.0](https://hackage.haskell.org/package/phoityne-vscode)  
-
-* [2016/08/07] for VSCode-1.4, updated vscode extension and haskell library. Please use new versions.
-  * Marketplace [phoityne-vscode-0.0.6](https://marketplace.visualstudio.com/items?itemName=phoityne.phoityne-vscode)
-  * hackage [phoityne-vscode-0.0.8.0](https://hackage.haskell.org/package/phoityne-vscode)
-
-* [2016/07/10] for VSCode-1.3, updated vscode extension and haskell library. Please use new versions.
-  * Marketplace [phoityne-vscode-0.0.5](https://marketplace.visualstudio.com/items?itemName=phoityne.phoityne-vscode)
-  * hackage [phoityne-vscode-0.0.6.0](https://hackage.haskell.org/package/phoityne-vscode)
-
-* [2016/06/06] for VSCode-1.2, updated vscode extension and haskell library. Please use new versions.
-  * Marketplace [phoityne-vscode-0.0.4](https://marketplace.visualstudio.com/items?itemName=phoityne.phoityne-vscode)
-  * hackage [phoityne-vscode-0.0.5.0](https://hackage.haskell.org/package/phoityne-vscode)
