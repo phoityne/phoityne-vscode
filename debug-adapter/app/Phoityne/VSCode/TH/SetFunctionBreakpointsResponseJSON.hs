@@ -30,12 +30,12 @@ $(deriveJSON defaultOptions { fieldLabelModifier = rdrop (length "SetFunctionBre
 --
 defaultSetFunctionBreakpointsResponse :: Int -> SetFunctionBreakpointsRequest ->  SetFunctionBreakpointsResponse
 defaultSetFunctionBreakpointsResponse seq (SetFunctionBreakpointsRequest reqSeq _ _ _) =
-  SetFunctionBreakpointsResponse seq "response" reqSeq True "setBreakpoints" "" defaultSetFunctionBreakpointsResponseBody
+  SetFunctionBreakpointsResponse seq "response" reqSeq True "setFunctionBreakpoints" "" defaultSetFunctionBreakpointsResponseBody
 
 
 -- |
 --
 errorSetFunctionBreakpointsResponse :: Int -> SetFunctionBreakpointsRequest -> String -> SetFunctionBreakpointsResponse
 errorSetFunctionBreakpointsResponse seq (SetFunctionBreakpointsRequest reqSeq _ _ _) msg =
-  SetFunctionBreakpointsResponse seq "response" reqSeq False "setBreakpoints" msg defaultSetFunctionBreakpointsResponseBody
+  SetFunctionBreakpointsResponse seq "response" reqSeq False "setFunctionBreakpoints" msg defaultSetFunctionBreakpointsResponseBody
 

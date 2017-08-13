@@ -4,7 +4,7 @@
 module Phoityne.VSCode.TH.LaunchRequestArgumentsJSON where
 
 import Data.Aeson.TH
--- import qualified Data.Map as M
+import qualified Data.Map as M
 import Phoityne.VSCode.Utility
 
 -- |
@@ -24,7 +24,7 @@ data LaunchRequestArguments =
   , ghciCmdLaunchRequestArguments      :: String     -- Phoityne specific argument. required.
   , stopOnEntryLaunchRequestArguments  :: Bool       -- Phoityne specific argument. required.
   , mainArgsLaunchRequestArguments     :: Maybe String         -- Phoityne specific argument. required.
-  -- , ghciEnvLaunchRequestArguments      :: M.Map String String  -- Phoityne specific argument. required.
+  , ghciEnvLaunchRequestArguments      :: M.Map String String  -- Phoityne specific argument. required.
   } deriving (Show, Read, Eq)
 
 

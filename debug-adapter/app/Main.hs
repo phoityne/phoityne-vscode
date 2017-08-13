@@ -3,7 +3,7 @@
 
 module Main where
 
-import qualified Phoityne.VSCode.IO.Main as M
+import qualified Phoityne.VSCode.Main as M
 import System.Exit
 
 -- |

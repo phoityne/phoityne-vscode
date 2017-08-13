@@ -7,12 +7,12 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveDataTypeable  #-}
 
-module Phoityne.VSCode.IO.Control where
+module Phoityne.VSCode.Control where
 
 import Phoityne.VSCode.Constant
 import Phoityne.VSCode.Utility
 import qualified Phoityne.VSCode.Argument as A
-import qualified Phoityne.VSCode.IO.Core as GUI
+import qualified Phoityne.VSCode.Core as GUI
 import qualified Data.ByteString.Lazy as BSL
 
 import System.IO

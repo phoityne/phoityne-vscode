@@ -7,22 +7,27 @@ Phoityne is a ghci debug viewer for Visual Studio Code.
 
 ## Information
 
-* [2017/05/07] phoityne-vscode released.  
-  * Marketplace [phoityne-vscode-0.0.12](https://marketplace.visualstudio.com/items?itemName=phoityne.phoityne-vscode)
-  * hackage [phoityne-vscode-0.0.14.0](https://hackage.haskell.org/package/phoityne-vscode)  
+* [2017/08/16] phoityne-vscode released.  
+  * Marketplace [phoityne-vscode-0.0.13](https://marketplace.visualstudio.com/items?itemName=phoityne.phoityne-vscode)
+  * hackage [phoityne-vscode-0.0.15.0](https://hackage.haskell.org/package/phoityne-vscode)  
+  __Need update from hackage !!.__
 * Release Summary
-  * ADD [15](https://github.com/phoityne/phoityne-vscode/issues/15) : adding main args setting to launch.json
-  * FIX [16](https://github.com/phoityne/phoityne-vscode/issues/16) : Exit on stdin eof
+  * [ADD] supported break-on-exception and break-on-error.
+  * [ADD] [5](https://github.com/phoityne/phoityne-vscode/issues/5) : adding ghci run enviroment variable setting.  
+  __Check!! that there is a ""ghciEnv": {}," setting in the launch.json.__
+  * [MODIFY] [21](https://github.com/phoityne/phoityne-vscode/issues/21) : support evaluateName attribute for watch variable.
 
 
-![01_debug.gif](https://raw.githubusercontent.com/phoityne/phoityne-vscode/master/docs/01_debug.gif)
+![10_quick_start.gif](https://raw.githubusercontent.com/phoityne/phoityne-vscode/master/docs/10_quick_start.gif)
+(This sample project is available from [here](https://github.com/phoityne/stack-project-template).)
 
 
 ## Important
 
-* Limitation. Breakpoint can be set in a .hs file which defineds "module ... where".
-* Limitation. Source file extension must be ".hs"
-* Limitation. Can not use STDIN handle while debugging. 
+* __LIMITATION__: Breakpoint can be set in a .hs file which defineds "module ... where".
+* __LIMITATION__: Source file extension must be ".hs"
+* __LIMITATION__: Can not use STDIN handle while debugging. 
+* __LIMITATION__: Changing ghci prompt is not allowed in the .ghci file. 
 * When you start debugging for the first time, .vscode/tasks.json will be created automatically. Then you can use F6, F7, F8 shortcut key.
   * F5 : start debug
   * F6 : show command menu (for stack watch)
@@ -54,7 +59,7 @@ Add 'phoityne-vscode.exe' to PATH environment.
     C:\Users\[user name]\AppData\Roaming\local\bin\phoityne-vscode.exe
     
     % phoityne-vscode --version
-    phoityne-vscode-0.0.14.0
+    phoityne-vscode-0.0.15.0
     %
     % code
 
@@ -104,24 +109,29 @@ Supports these operators.
 
 ![07_hit_count.gif](https://raw.githubusercontent.com/phoityne/phoityne-vscode/master/docs/07_hit_count.gif)
 
+### Break on Exception
+
+![08_exception.gif](https://raw.githubusercontent.com/phoityne/phoityne-vscode/master/docs/08_exception.gif)
+
+
 ### Repl & Completions
 
 ![06_repl.gif](https://raw.githubusercontent.com/phoityne/phoityne-vscode/master/docs/06_repl.gif)
 
 ## Capabilites
 
-* supportsConfigurationDoneRequest : yes
-* supportsFunctionBreakpoints : yes
-* supportsConditionalBreakpoints : yes
-* supportsHitConditionalBreakpoints : yes
-* supportsEvaluateForHovers : yes
-* exceptionBreakpointFilters : no
+* supportsConfigurationDoneRequest : **yes**
+* supportsFunctionBreakpoints : **yes**
+* supportsConditionalBreakpoints : **yes**
+* supportsHitConditionalBreakpoints : **yes**
+* supportsEvaluateForHovers : **yes**
+* exceptionBreakpointFilters : **yes**
 * supportsStepBack : no
 * supportsSetVariable : no
 * supportsRestartFrame : no
 * supportsGotoTargetsRequest : no
 * supportsStepInTargetsRequest : no
-* supportsCompletionsRequest : yes
+* supportsCompletionsRequest : **yes**
 * supportsModulesRequest : no
 * additionalModuleColumns : no
 * supportedChecksumAlgorithms : no
@@ -129,6 +139,9 @@ Supports these operators.
 * supportsExceptionOptions : no
 * supportsValueFormattingOptions : no
 * supportsExceptionInfoRequest : no
+* supportTerminateDebuggee : no
+* supportsDelayedStackTraceLoading : no
+
 
 ## Configuration
 

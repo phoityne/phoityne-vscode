@@ -7,7 +7,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveDataTypeable  #-}
 
-module Phoityne.VSCode.IO.Core (
+module Phoityne.VSCode.Core (
   handleRequest
 , DebugContextData(..)
 , defaultDebugContextData
@@ -33,7 +33,7 @@ import qualified Data.Aeson as J
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.String.Utils as U
 import qualified Data.List as L
-import qualified Data.Map as MAP
+import qualified Data.Map as M
 import qualified System.FSNotify as FSN
 import qualified System.Log.Logger as L
 import qualified System.Log.Formatter as L
@@ -42,7 +42,6 @@ import qualified System.Log.Handler.Simple as LHS
 
 import Phoityne.VSCode.Constant
 import Phoityne.VSCode.Utility
-import Phoityne.VSCode.IO.Utility
 import qualified Phoityne.VSCode.TH.BreakpointJSON as J
 import qualified Phoityne.VSCode.TH.CompletionsItemJSON as J
 import qualified Phoityne.VSCode.TH.CompletionsArgumentsJSON as J
@@ -59,6 +58,7 @@ import qualified Phoityne.VSCode.TH.EvaluateArgumentsJSON as J
 import qualified Phoityne.VSCode.TH.EvaluateBodyJSON as J
 import qualified Phoityne.VSCode.TH.EvaluateRequestJSON as J
 import qualified Phoityne.VSCode.TH.EvaluateResponseJSON as J
+import qualified Phoityne.VSCode.TH.ExceptionBreakpointsFilterJSON as J
 import qualified Phoityne.VSCode.TH.InitializedEventJSON as J
 import qualified Phoityne.VSCode.TH.InitializeRequestJSON as J
 import qualified Phoityne.VSCode.TH.InitializeResponseCapabilitesJSON as J
@@ -84,6 +84,9 @@ import qualified Phoityne.VSCode.TH.SetFunctionBreakpointsRequestArgumentsJSON a
 import qualified Phoityne.VSCode.TH.SetFunctionBreakpointsRequestJSON as J
 import qualified Phoityne.VSCode.TH.SetFunctionBreakpointsResponseBodyJSON as J
 import qualified Phoityne.VSCode.TH.SetFunctionBreakpointsResponseJSON as J
+import qualified Phoityne.VSCode.TH.SetExceptionBreakpointsRequestArgumentsJSON as J
+import qualified Phoityne.VSCode.TH.SetExceptionBreakpointsRequestJSON as J
+import qualified Phoityne.VSCode.TH.SetExceptionBreakpointsResponseJSON as J
 import qualified Phoityne.VSCode.TH.SourceBreakpointJSON as J
 import qualified Phoityne.VSCode.TH.FunctionBreakpointJSON as J
 import qualified Phoityne.VSCode.TH.SourceJSON as J
@@ -98,6 +101,7 @@ import qualified Phoityne.VSCode.TH.StepInResponseJSON as J
 import qualified Phoityne.VSCode.TH.StepOutRequestJSON as J
 import qualified Phoityne.VSCode.TH.StepOutResponseJSON as J
 import qualified Phoityne.VSCode.TH.StoppedEventJSON as J
+import qualified Phoityne.VSCode.TH.StoppedEventBodyJSON as J
 import qualified Phoityne.VSCode.TH.TerminatedEventJSON as J
 import qualified Phoityne.VSCode.TH.TerminatedEventBodyJSON as J
 import qualified Phoityne.VSCode.TH.ThreadsRequestJSON as J
@@ -149,7 +153,7 @@ type BreakPointDataKey = G.SourcePosition
 -- |
 --  
 -- 
-type BreakPointDatas = MAP.Map BreakPointDataKey BreakPointData
+type BreakPointDatas = M.Map BreakPointDataKey BreakPointData
 
 -- |
 --  
@@ -225,7 +229,7 @@ _TASKS_JSON_FILE_CONTENTS = str2lbs $ U.join "\n" $
   , "       \"args\": [ \"echo START_STACK_TEST && cd ${workspaceRoot} && stack test && echo END_STACK_TEST \" ]"
   , "    },"
   , "    { "
-  , "       \"isWatching\": true,"
+  , "       \"isBackground\": true,"
   , "       \"taskName\": \"stack watch\","
   , "       \"args\": [ \"echo START_STACK_WATCH && cd ${workspaceRoot} && stack build --test --no-run-tests --file-watch && echo END_STACK_WATCH \" ]"
   , "    }"
@@ -271,8 +275,8 @@ _NOT_PERMIT_REPL_COMMANDS = [
 defaultDebugContextData :: DebugContextData
 defaultDebugContextData = DebugContextData {
     resSeqDebugContextData                  = _INITIAL_RESPONSE_SEQUENCE
-  , functionBreakPointDatasDebugContextData = MAP.fromList []
-  , breakPointDatasDebugContextData         = MAP.fromList []
+  , functionBreakPointDatasDebugContextData = M.fromList []
+  , breakPointDatasDebugContextData         = M.fromList []
   , workspaceDebugContextData               = ""
   , startupDebugContextData                 = ""
   , debugStartedDebugContextData            = False
@@ -434,6 +438,10 @@ handleRequest mvarDat contLenStr jsonStr = do
       Right req -> setFunctionBreakpointsRequestHandler mvarDat req
       Left  err -> sendParseErrorAndTerminate err "setFunctionBreakpoints"
 
+    handle "setExceptionBreakpoints" = case J.eitherDecode jsonStr :: Either String J.SetExceptionBreakpointsRequest of
+      Right req -> setExceptionBreakpointsRequestHandler mvarDat req
+      Left  err -> sendParseErrorAndTerminate err "setExceptionBreakpoints"
+
     handle "continue" = case J.eitherDecode jsonStr :: Either String J.ContinueRequest of
       Right req -> continueRequestHandler mvarDat req
       Left  err -> sendParseErrorAndTerminate err "continue"
@@ -512,7 +520,23 @@ handleRequest mvarDat contLenStr jsonStr = do
 initializeRequestHandler :: MVar DebugContextData -> J.InitializeRequest -> IO ()
 initializeRequestHandler mvarCtx req@(J.InitializeRequest seq _ _ _) = flip E.catches handlers $ do
   resSeq <- getIncreasedResponseSequence mvarCtx
-  let capa = J.InitializeResponseCapabilites True True True True True [] False False False False False True
+  let capa = J.InitializeResponseCapabilites {
+             J.supportsConfigurationDoneRequestInitializeResponseCapabilites  = True
+           , J.supportsFunctionBreakpointsInitializeResponseCapabilites       = True
+           , J.supportsConditionalBreakpointsInitializeResponseCapabilites    = True
+           , J.supportsHitConditionalBreakpointsInitializeResponseCapabilites = True
+           , J.supportsEvaluateForHoversInitializeResponseCapabilites         = True
+           , J.exceptionBreakpointFiltersInitializeResponseCapabilites        = [
+                 J.ExceptionBreakpointsFilter "break-on-error" "break-on-error" False
+               , J.ExceptionBreakpointsFilter "break-on-exception" "break-on-exception" False
+               ]
+           , J.supportsStepBackInitializeResponseCapabilites                  = False
+           , J.supportsSetVariableInitializeResponseCapabilites               = False
+           , J.supportsRestartFrameInitializeResponseCapabilites              = False
+           , J.supportsGotoTargetsRequestInitializeResponseCapabilites        = False
+           , J.supportsStepInTargetsRequestInitializeResponseCapabilites      = False
+           , J.supportsCompletionsRequestInitializeResponseCapabilites        = True
+           }
       res  = J.InitializeResponse resSeq "response" seq True "initialize" "" capa
 
   sendResponse mvarCtx $ J.encode res
@@ -555,7 +579,7 @@ launchRequestHandler mvarCtx req@(J.LaunchRequest _ _ _ args) = flip E.catches h
   runGHCi mvarCtx
           (J.ghciCmdLaunchRequestArguments args)
           (J.ghciPromptLaunchRequestArguments args)
-          -- (J.ghciEnvLaunchRequestArguments args)
+          (J.ghciEnvLaunchRequestArguments args)
            >>= ghciLaunched 
 
     
@@ -730,8 +754,8 @@ setBreakpointsRequestHandler mvarCtx req = flip E.catches handlers $ do
     delete path = do
       ctx <- takeMVar mvarCtx
       let bps = breakPointDatasDebugContextData ctx
-          newBps = MAP.filterWithKey (\(G.SourcePosition p _ _ _ _) _-> path /= p) bps
-          delBps = MAP.elems $ MAP.filterWithKey (\(G.SourcePosition p _ _ _ _) _-> path == p) bps
+          newBps = M.filterWithKey (\(G.SourcePosition p _ _ _ _) _-> path /= p) bps
+          delBps = M.elems $ M.filterWithKey (\(G.SourcePosition p _ _ _ _) _-> path == p) bps
 
       putMVar mvarCtx ctx{breakPointDatasDebugContextData = newBps}
 
@@ -750,7 +774,7 @@ setBreakpointsRequestHandler mvarCtx req = flip E.catches handlers $ do
 
       ctx <- takeMVar mvarCtx
       let bps    = breakPointDatasDebugContextData ctx
-          newBps = foldr (\v@(BreakPointData _ s _ _ _ _)->MAP.insert s v) bps $ map fst results
+          newBps = foldr (\v@(BreakPointData _ s _ _ _ _)->M.insert s v) bps $ map fst results
       putMVar mvarCtx ctx{breakPointDatasDebugContextData = newBps}
 
       return resData
@@ -791,7 +815,7 @@ setFunctionBreakpointsRequestHandler mvarCtx req = flip E.catches handlers $ do
   where
     handlers = [ E.Handler someExcept ]
     someExcept (e :: E.SomeException) = do
-      let msg = L.intercalate " " ["setBreakpoints request error.", show req, show e]
+      let msg = L.intercalate " " ["setFunctionBreakpoints request error.", show req, show e]
       resSeq <- getIncreasedResponseSequence mvarCtx
       sendResponse mvarCtx $ J.encode $ J.errorSetFunctionBreakpointsResponse resSeq req msg 
       sendErrorEvent mvarCtx msg
@@ -814,9 +838,9 @@ setFunctionBreakpointsRequestHandler mvarCtx req = flip E.catches handlers $ do
     delete = do
       ctx <- takeMVar mvarCtx
       let bps = functionBreakPointDatasDebugContextData ctx
-          delBps = MAP.elems bps
+          delBps = M.elems bps
 
-      putMVar mvarCtx ctx{functionBreakPointDatasDebugContextData = MAP.fromList []}
+      putMVar mvarCtx ctx{functionBreakPointDatasDebugContextData = M.fromList []}
 
       debugM _LOG_NAME $ "del bps:" ++ show delBps
 
@@ -833,7 +857,7 @@ setFunctionBreakpointsRequestHandler mvarCtx req = flip E.catches handlers $ do
 
       ctx <- takeMVar mvarCtx
       let bps    = functionBreakPointDatasDebugContextData ctx
-          newBps = foldr (\v@(BreakPointData _ s _ _ _ _)->MAP.insert s v) bps $ map fst results
+          newBps = foldr (\v@(BreakPointData _ s _ _ _ _)->M.insert s v) bps $ map fst results
       putMVar mvarCtx ctx{functionBreakPointDatasDebugContextData = newBps}
 
       return resData
@@ -847,6 +871,48 @@ setFunctionBreakpointsRequestHandler mvarCtx req = flip E.catches handlers $ do
                         }
                  , J.Breakpoint (Just no) True "" (J.Source (Just funcName) path Nothing Nothing) sl sc el ec)
         Left err -> return (reqBp, J.Breakpoint Nothing False err (J.Source (Just funcName) "" Nothing Nothing) (-1) (-1) (-1) (-1))
+
+-- |
+--
+setExceptionBreakpointsRequestHandler :: MVar DebugContextData -> J.SetExceptionBreakpointsRequest -> IO ()
+setExceptionBreakpointsRequestHandler mvarCtx req = flip E.catches handlers $ do
+  logRequest $ show req
+
+  let args    = J.argumentsSetExceptionBreakpointsRequest req
+      filters = J.filtersSetExceptionBreakpointsRequestArguments args
+  
+  ghciProcessDebugContextData <$> (readMVar mvarCtx) >>= withProcess filters
+
+  where
+    handlers = [ E.Handler someExcept ]
+    someExcept (e :: E.SomeException) = do
+      let msg = L.intercalate " " ["setExceptionBreakpoints request error.", show req, show e]
+      resSeq <- getIncreasedResponseSequence mvarCtx
+      sendResponse mvarCtx $ J.encode $ J.errorSetExceptionBreakpointsResponse resSeq req msg 
+      sendErrorEvent mvarCtx msg
+
+    withProcess _ Nothing = sendErrorEvent mvarCtx "[setExceptionBreakpointsRequestHandler] ghci not started."
+    withProcess filters (Just ghciProc) 
+      | null filters                      = withCommands ghciProc ["-fno-break-on-exception", "-fno-break-on-error"]
+      | filters == ["break-on-error"]     = withCommands ghciProc ["-fno-break-on-exception", "-fbreak-on-error"]
+      | filters == ["break-on-exception"] = withCommands ghciProc ["-fbreak-on-exception",    "-fno-break-on-error"]
+      | otherwise                         = withCommands ghciProc ["-fbreak-on-exception",    "-fbreak-on-error" ] 
+  
+    withCommands _ [] = do
+      resSeq <- getIncreasedResponseSequence mvarCtx
+      let res    = J.defaultSetExceptionBreakpointsResponse resSeq req
+          resStr = J.encode res
+      sendResponse mvarCtx resStr
+
+    withCommands ghciProc (x:xs) = G.set ghciProc outHdl x >>= \case
+      Right _ -> withCommands ghciProc xs
+      Left err  -> do
+        let msg = L.intercalate " " ["setExceptionBreakpoints request error.", show req, show err]
+        resSeq <- getIncreasedResponseSequence mvarCtx
+        sendResponse mvarCtx $ J.encode $ J.errorSetExceptionBreakpointsResponse resSeq req msg 
+        sendErrorEvent mvarCtx msg
+
+    outHdl = sendStdoutEvent mvarCtx
 
 -- |
 --
@@ -903,7 +969,15 @@ nextRequestHandler mvarCtx req = flip E.catches handlers $ do
         sendErrorEvent mvarCtx $ show err
         sendTerminateEvent mvarCtx
 
-      Right pos -> do
+      Right Nothing    -> do
+        resSeq <- getIncreasedResponseSequence mvarCtx
+        let res    = J.defaultNextResponse resSeq req
+            resStr = J.encode res
+        sendResponse mvarCtx resStr
+
+        breakByException mvarCtx
+
+      Right (Just pos) -> do
         ctx <- takeMVar mvarCtx
         putMVar mvarCtx ctx{debugStoppedPosDebugContextData = Just pos}
   
@@ -953,7 +1027,15 @@ stepInRequestHandler mvarCtx req = flip E.catches handlers $ do
         sendErrorEvent mvarCtx $ show err
         sendTerminateEvent mvarCtx
 
-      Right pos -> do
+      Right Nothing    -> do
+        resSeq <- getIncreasedResponseSequence mvarCtx
+        let res    = J.defaultStepInResponse resSeq req
+            resStr = J.encode res
+        sendResponse mvarCtx resStr
+        
+        breakByException mvarCtx
+
+      Right (Just pos) -> do
         ctx <- takeMVar mvarCtx
         putMVar mvarCtx ctx{debugStoppedPosDebugContextData = Just pos}
   
@@ -1091,7 +1173,7 @@ variablesRequestHandler mvarCtx req = flip E.catches handlers $ do
 
       Right dats -> return $ map convBind2Vals dats
     
-    convBind2Vals (G.BindingData varName modName val) = J.Variable varName modName val 0
+    convBind2Vals (G.BindingData varName modName val) = J.Variable varName modName val (Just varName) 0
 
     outHdl = debugM _LOG_NAME
 
@@ -1336,15 +1418,16 @@ getIncreasedResponseSequence mvarCtx = do
 runGHCi :: MVar DebugContextData
         -> String
         -> String
+        -> M.Map String String
         -> IO (Either G.ErrorData G.GHCiProcess)
-runGHCi mvarCtx cmdStr pmt = do
+runGHCi mvarCtx cmdStr pmt envs = do
   ctx <- readMVar mvarCtx
   let cmdList = filter (not.null) $ U.split " " cmdStr
       cmd  = head cmdList
       opts = tail cmdList
       cwd  = workspaceDebugContextData ctx
   
-  G.start outHdl cmd opts cwd pmt
+  G.start outHdl cmd opts cwd pmt envs
   
   where
     outHdl = sendStdoutEvent mvarCtx 
@@ -1498,6 +1581,47 @@ moveFrame mvarCtx traceId = ghciProcessDebugContextData <$> (readMVar mvarCtx) >
 
     outHdl = sendStdoutEvent mvarCtx
 
+-- |
+--
+--
+breakByException :: MVar DebugContextData -> IO ()
+breakByException mvarCtx = ghciProcessDebugContextData <$> (readMVar mvarCtx) >>= withProcess
+  where
+    withProcess Nothing = do
+      sendErrorEvent mvarCtx "[breakByException] ghci not started."
+      sendTerminateEvent mvarCtx
+
+    withProcess (Just ghciProc) = do
+      debugM _LOG_NAME $ "exception occured."
+      G.exec ghciProc outHdl ":force _exception" >>= withExceptionMsg ghciProc
+
+    withExceptionMsg _ (Left err) = do
+      sendErrorEvent mvarCtx $ "[breakByException] can't get exception message. " ++ err
+      sendTerminateEvent mvarCtx
+
+    withExceptionMsg ghciProc (Right msg) = G.history ghciProc outHdl >>= \case
+        Left err   -> do
+          sendErrorEvent mvarCtx $ show err
+          sendTerminateEvent mvarCtx
+
+        Right [] -> do
+          sendErrorEvent mvarCtx "[breakByException] invalid exception history."
+          sendTerminateEvent mvarCtx
+
+        Right ((G.StackFrame _ _ pos):_) -> do
+          ctx <- takeMVar mvarCtx
+          putMVar mvarCtx ctx{debugStoppedPosDebugContextData = Just pos}
+          
+          resSeq <- getIncreasedResponseSequence mvarCtx
+          let stopEvt    = J.defaultStoppedEvent resSeq
+              stopEvtStr = J.encode stopEvt{J.bodyStoppedEvent = J.exceptionStoppedEventBody (unlines (init (lines msg)))}
+          sendEvent mvarCtx stopEvtStr
+
+    -- |
+    --
+    outHdl = debugM _LOG_NAME
+    -- outHdl = sendStdoutEvent mvarCtx
+
 
 -- |
 --
@@ -1519,8 +1643,8 @@ proceedDebug mvarCtx = do
         -- end of debugging successfully.
         debugM _LOG_NAME $ show err
         sendTerminateEvent mvarCtx
-
-      Right pos -> breakOrContinue pos
+      Right (Just pos) -> breakOrContinue pos
+      Right Nothing    -> breakByException mvarCtx
 
     proceed False (Just ghciProc) = do
       ctx <- readMVar mvarCtx
@@ -1535,7 +1659,12 @@ proceedDebug mvarCtx = do
         debugM _LOG_NAME $ show err
         sendTerminateEvent mvarCtx
 
-      Right pos -> do
+      Right Nothing -> do
+        ctx <- takeMVar mvarCtx
+        putMVar mvarCtx ctx{currentFrameIdDebugContextData = 0, debugStartedDebugContextData = True}
+        breakByException mvarCtx
+
+      Right (Just pos) -> do
         ctx <- takeMVar mvarCtx
         putMVar mvarCtx ctx{currentFrameIdDebugContextData = 0, debugStartedDebugContextData = True}
         breakOrContinue pos
@@ -1601,9 +1730,9 @@ findBreakPointType mvarCtx pos = do
   let bpMap = breakPointDatasDebugContextData ctx
       funcMap = functionBreakPointDatasDebugContextData ctx
 
-  case MAP.lookup pos bpMap of
+  case M.lookup pos bpMap of
     Just bp -> return $ SourceBreakPoint bp
-    Nothing -> case MAP.lookup pos funcMap of
+    Nothing -> case M.lookup pos funcMap of
       Just bp -> return $ FunctionBreakPoint bp
       Nothing -> return UnknownBreakPoint
 
@@ -1614,7 +1743,7 @@ breakOrContinueSourceBreakPoint :: MVar DebugContextData -> BreakPointData -> IO
 breakOrContinueSourceBreakPoint mvarCtx bp = do
   ctx <- takeMVar mvarCtx
   let bpMap = breakPointDatasDebugContextData ctx
-      newMap = MAP.adjust incrementBreakPointHitCount (getBreakPointKey bp) bpMap
+      newMap = M.adjust incrementBreakPointHitCount (getBreakPointKey bp) bpMap
   putMVar mvarCtx ctx{breakPointDatasDebugContextData = newMap}
 
   breakOrContinueByCondition mvarCtx $ incrementBreakPointHitCount bp
@@ -1626,7 +1755,7 @@ breakOrContinueFunctionBreakPoint :: MVar DebugContextData -> BreakPointData -> 
 breakOrContinueFunctionBreakPoint mvarCtx bp = do
   ctx <- takeMVar mvarCtx
   let bpMap = functionBreakPointDatasDebugContextData ctx
-      newMap = MAP.adjust incrementBreakPointHitCount (getBreakPointKey bp) bpMap
+      newMap = M.adjust incrementBreakPointHitCount (getBreakPointKey bp) bpMap
   putMVar mvarCtx ctx{functionBreakPointDatasDebugContextData = newMap}
  
   breakOrContinueByCondition mvarCtx $ incrementBreakPointHitCount bp

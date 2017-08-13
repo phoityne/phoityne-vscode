@@ -1,7 +1,12 @@
 
+{-# LANGUAGE MultiWayIf          #-}
+
 module Phoityne.VSCode.Utility where
 
 import Data.Either.Utils
+import GHC.IO.Encoding
+import Distribution.System
+import Control.Monad.Trans.Resource
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.List as L
@@ -11,6 +16,9 @@ import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TLE
 import qualified Data.ConfigFile as CFG
 import qualified Data.Tree as TR
+import qualified Data.Conduit.Binary as C
+import qualified Data.Conduit as C
+import qualified Data.Conduit.List as C
 
 
 -- |
@@ -18,20 +26,24 @@ import qualified Data.Tree as TR
 str2bs :: String -> BS.ByteString
 str2bs = TE.encodeUtf8 . T.pack
 
+
 -- |
 --
 bs2str :: BS.ByteString -> String
 bs2str = T.unpack. TE.decodeUtf8
+
 
 -- |
 --
 str2lbs :: String -> LBS.ByteString
 str2lbs = TLE.encodeUtf8 . TL.pack
 
+
 -- |
 --
 lbs2str :: LBS.ByteString -> String
 lbs2str = TL.unpack. TLE.decodeUtf8
+
 
 -- |
 --
@@ -58,8 +70,47 @@ pushWithLimit :: [a] -> a -> Int -> [a]
 pushWithLimit [] item _ = [item]
 pushWithLimit buf item maxSize = if length buf > maxSize then item : L.init buf else item : buf
 
+
 -- |
 --
 rdrop :: Int -> [a] -> [a]
 rdrop cnt = reverse . drop cnt . reverse
+
+
+-- |
+--  
+-- 
+getReadHandleEncoding :: IO TextEncoding
+getReadHandleEncoding = if
+  | Windows == buildOS -> mkTextEncoding "CP932//TRANSLIT"
+  | otherwise -> mkTextEncoding "UTF-8//TRANSLIT"
+
+
+-- |
+--  
+-- 
+loadFile :: FilePath -> IO BS.ByteString
+loadFile path = do
+  bs <- runResourceT
+      $ C.sourceFile path
+      C.$$ C.consume
+  return $ BS.concat bs
+
+
+-- |
+--  
+-- 
+saveFile :: FilePath -> BS.ByteString -> IO ()
+saveFile path cont = saveFileLBS path $ LBS.fromStrict cont
+
+
+-- |
+--  
+-- 
+saveFileLBS :: FilePath -> LBS.ByteString -> IO ()
+saveFileLBS path cont = runResourceT
+  $ C.sourceLbs cont
+  C.$$ C.sinkFile path
+
+
 

@@ -5,7 +5,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveDataTypeable  #-}
 
-module Phoityne.GHCi.IO.Process (
+module Phoityne.GHCi.Process (
     ErrorData
   , GHCiProcess (..)
   , runProcess
@@ -24,8 +24,10 @@ import Distribution.System
 import qualified System.Process as S
 import qualified System.IO as S
 import qualified System.Exit as S
+import qualified System.Environment as S
 import qualified Control.Exception as E
 import qualified Data.String.Utils as U
+import qualified Data.Map as M
 
 -- |
 --  command error message.
@@ -51,8 +53,9 @@ runProcess :: String
            -> [String]
            -> FilePath
            -> String
+           -> M.Map String String
            -> IO (Either ErrorData GHCiProcess)
-runProcess cmd opts cwd pmt = flip E.catches handlers $ do
+runProcess cmd opts cwd pmt envs = flip E.catches handlers $ do
 
   (fromPhoityneHandle, toGHCiHandle) <- S.createPipe
   (fromGHCiHandle, toPhoityneHandle) <- S.createPipe
@@ -75,7 +78,9 @@ runProcess cmd opts cwd pmt = flip E.catches handlers $ do
   S.hSetEncoding fromGHCiHandle osEnc
   S.hSetNewlineMode fromGHCiHandle $ S.NewlineMode S.CRLF S.LF
 
-  ghciProc <- S.runProcess cmd opts (Just cwd) Nothing (Just fromPhoityneHandle) (Just toPhoityneHandle) (Just toPhoityneHandle)
+  runEnvs <- getRunEnv
+
+  ghciProc <- S.runProcess cmd opts (Just cwd) runEnvs (Just fromPhoityneHandle) (Just toPhoityneHandle) (Just toPhoityneHandle)
 
   return . Right $ GHCiProcess toGHCiHandle fromGHCiHandle fromGHCiHandle ghciProc pmt
 
@@ -91,6 +96,14 @@ runProcess cmd opts cwd pmt = flip E.catches handlers $ do
       | Windows == buildOS -> mkTextEncoding "CP932//TRANSLIT"
       | otherwise -> mkTextEncoding "UTF-8//TRANSLIT"
 
+    -- |
+    --  
+    -- 
+    getRunEnv
+      | null envs = return Nothing
+      | otherwise = do
+          curEnvs <- S.getEnvironment
+          return $ Just $ M.toList envs ++ curEnvs 
 
 -- |
 --   exit ghci.

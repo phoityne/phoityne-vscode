@@ -1,10 +1,10 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE MultiWayIf          #-}
 
-module Phoityne.VSCode.IO.Main (run) where
+module Phoityne.VSCode.Main (run) where
 
 import qualified Phoityne.VSCode.Argument as A
-import qualified Phoityne.VSCode.IO.Control as CTRL
+import qualified Phoityne.VSCode.Control as CTRL
 
 import Data.Either.Utils
 import System.Exit

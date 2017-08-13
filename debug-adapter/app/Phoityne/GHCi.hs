@@ -1,8 +1,8 @@
 module Phoityne.GHCi (
-  module Phoityne.GHCi.IO.Process
-, module Phoityne.GHCi.IO.Command
+  module Phoityne.GHCi.Process
+, module Phoityne.GHCi.Command
 ) where
 
-import Phoityne.GHCi.IO.Process
-import Phoityne.GHCi.IO.Command
+import Phoityne.GHCi.Process
+import Phoityne.GHCi.Command
 

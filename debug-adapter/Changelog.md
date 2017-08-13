@@ -1,4 +1,10 @@
 
+20170816 phoityne-vscode-0.0.15.0
+  * [ADD] supported break-on-exception and break-on-error.
+  * [ADD] [5](https://github.com/phoityne/phoityne-vscode/issues/5) :adding ghci run enviroment variable setting. 
+  * [MODIFY] [21](https://github.com/phoityne/phoityne-vscode/issues/21) : support evaluateName attribute for watch variable.
+
+
 20170507 phoityne-vscode-0.0.14.0
   * [ADD] [15](https://github.com/phoityne/phoityne-vscode/issues/15) : adding main args setting to launch.json
   * [FIX] [16](https://github.com/phoityne/phoityne-vscode/issues/16) : Exit on stdin eof

@@ -29,3 +29,5 @@ $(deriveJSON defaultOptions { fieldLabelModifier = rdrop (length "StoppedEventBo
 defaultStoppedEventBody :: StoppedEventBody
 defaultStoppedEventBody = StoppedEventBody "step" 0 "" False
 
+exceptionStoppedEventBody :: String -> StoppedEventBody
+exceptionStoppedEventBody msg = StoppedEventBody "exception" 0 msg False

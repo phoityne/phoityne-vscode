@@ -8,7 +8,7 @@
 {-# LANGUAGE FlexibleContexts    #-}
  
 
-module Phoityne.GHCi.IO.Command (
+module Phoityne.GHCi.Command (
     SourcePosition(..)
   , StackFrame(..)
   , BindingData(..)
@@ -37,11 +37,12 @@ module Phoityne.GHCi.IO.Command (
   , complete
   ) where
 
-import Phoityne.GHCi.IO.Process
+import Phoityne.GHCi.Process
 import Text.Parsec
 import Data.Functor.Identity
 import Data.Char
 import qualified Data.List as L
+import qualified Data.Map as M
 import qualified System.Exit as S
 import qualified Data.String.Utils as U
 
@@ -120,10 +121,11 @@ start :: OutputHandler
       -> [GHCiOption]
       -> FilePath
       -> String
+      -> M.Map String String
       -> IO (Either ErrorData GHCiProcess)
-start outHdl cmd opts cwd pmt = do
+start outHdl cmd opts cwd pmt envs = do
   outHdl $ L.intercalate " " $ (cmd : opts) ++ ["in " ++ cwd, "\n"]
-  runProcess cmd opts cwd pmt >>= withProcess
+  runProcess cmd opts cwd pmt envs >>= withProcess
   where
     withProcess (Left err) = return $ Left err
     withProcess (Right ghci) = readCharWhile ghci (not.endOfStartMsg) >>= setupGHCi ghci
@@ -293,39 +295,49 @@ delete ghci outHdl bid = do
 
 -- |
 --
-traceMain :: GHCiProcess -> OutputHandler -> IO (Either ErrorData SourcePosition)
+traceMain :: GHCiProcess -> OutputHandler -> IO (Either ErrorData (Maybe SourcePosition))
 traceMain ghci outHdl = do
   let cmd = ":trace main"
   exec ghci outHdl cmd >>= \case
     Left err  -> return $ Left err
-    Right msg -> return $ extractSourcePosition msg
+    Right msg -> return $ mayException msg
 
 -- |
 --
-trace :: GHCiProcess -> OutputHandler -> IO (Either ErrorData SourcePosition)
+trace :: GHCiProcess -> OutputHandler -> IO (Either ErrorData (Maybe SourcePosition))
 trace ghci outHdl = do
   let cmd = ":trace"
   exec ghci outHdl cmd >>= \case
     Left err  -> return $ Left err
-    Right msg -> return $ extractSourcePosition msg
+    Right msg -> return $ mayException msg
 
 -- |
 --
-step :: GHCiProcess -> OutputHandler -> IO (Either ErrorData SourcePosition)
+step :: GHCiProcess -> OutputHandler -> IO (Either ErrorData (Maybe SourcePosition))
 step ghci outHdl = do
   let cmd = ":step"
   exec ghci outHdl cmd >>= \case
     Left err  -> return $ Left err
-    Right msg -> return $ extractSourcePosition msg
+    Right msg -> return $ mayException msg
 
 -- |
 --
-stepLocal :: GHCiProcess -> OutputHandler -> IO (Either ErrorData SourcePosition)
+stepLocal :: GHCiProcess -> OutputHandler -> IO (Either ErrorData (Maybe SourcePosition))
 stepLocal ghci outHdl = do
   let cmd = ":steplocal"
   exec ghci outHdl cmd >>= \case
     Left err  -> return $ Left err
-    Right msg -> return $ extractSourcePosition msg
+    Right msg -> return $ mayException msg
+
+
+-- |
+--
+mayException :: String -> Either ErrorData (Maybe SourcePosition)
+mayException msg 
+  | L.isInfixOf "Stopped in <exception thrown>" msg = Right Nothing
+  | otherwise = case extractSourcePosition msg of
+    Left err  -> Left err
+    Right pos -> Right $ Just pos
 
 -- |
 --
@@ -483,7 +495,7 @@ extractSourcePosition src = case parse sourcePositionParser "extractSourcePositi
 --
 parsePosition :: forall u. ParsecT String u Identity SourcePosition
 parsePosition = do
-  path <- manyTill anyChar (string (_HS_FILE_EXT ++ ":"))
+  path <- manyTill anyChar (try (string (_HS_FILE_EXT ++ ":")))
   (sl, sn, el, en) <- try parseA <|> try parseB <|> try parseC
   return $ SourcePosition (drive2lower path ++ _HS_FILE_EXT) sl sn el en
   where
@@ -586,15 +598,15 @@ extractBindingBindingDatas src = case parse bindingBindingDatasParser "extractBi
 
   where
     bindingBindingDatasParser = do
-      varName <- manyTill anyChar (try (string " :: "))
+      varName <- manyTill anyChar (try (string " ::"))
       bindingBindingDatasParser' (U.strip varName) []
 
     bindingBindingDatasParser' varName acc = do
-      typeName <- manyTill anyChar (try (string " = "))
+      typeName <- manyTill anyChar (try (string " ="))
       try (hasMore varName  (U.strip typeName) acc) <|> lastItem  varName  (U.strip typeName) acc
 
     hasMore varName typeName acc = do
-      str <- manyTill anyChar (try (string " :: "))
+      str <- manyTill anyChar (try (string " ::"))
       let strs = lines str
       if 1 == length strs then return $ BindingData varName typeName (U.strip str) : acc
         else bindingBindingDatasParser' (U.strip (last strs))
