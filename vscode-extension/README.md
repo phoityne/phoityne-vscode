@@ -18,7 +18,7 @@ Phoityne is a ghci debug viewer for Visual Studio Code.
   * [MODIFY] [21](https://github.com/phoityne/phoityne-vscode/issues/21) : support evaluateName attribute for watch variable.
 
 
-![10_quick_start.gif](https://raw.githubusercontent.com/phoityne/phoityne-vscode/master/docs/10_quick_start.gif)
+![10_quick_start.gif](https://raw.githubusercontent.com/phoityne/phoityne-vscode/master/docs/10_quick_start.gif)  
 (This sample project is available from [here](https://github.com/phoityne/stack-project-template).)
 
 
