@@ -9,24 +9,25 @@
 
 module Phoityne.VSCode.Control where
 
-import Phoityne.VSCode.Constant
-import Phoityne.VSCode.Utility
-import qualified Phoityne.VSCode.Argument as A
-import qualified Phoityne.VSCode.Core as GUI
-import qualified Data.ByteString.Lazy as BSL
-
 import System.IO
 import Control.Concurrent
 import Text.Parsec
 import qualified Data.ConfigFile as C
 import qualified System.Log.Logger as L
 
+import Phoityne.VSCode.Constant
+import Phoityne.VSCode.Utility
+import qualified Phoityne.VSCode.Argument as A
+import qualified Phoityne.VSCode.Core as GUI
+import qualified Data.ByteString.Lazy as BSL
+
+
 -- |
 -- 
 run :: A.ArgData
     -> C.ConfigParser
     -> IO Int
-run _ _ = do
+run args _ = do
 
   hSetBuffering stdin NoBuffering
   hSetEncoding  stdin utf8
@@ -34,11 +35,15 @@ run _ _ = do
   hSetBuffering stdout NoBuffering
   hSetEncoding  stdout utf8
 
-  mvarDat <- newMVar GUI.defaultDebugContextData {GUI.responseHandlerDebugContextData = sendResponse}
+  mvarDat <- newMVar GUI.defaultDebugContextData {
+                       GUI.responseHandlerDebugContextData = sendResponse
+                     , GUI.hackagePackageVersionDebugContextData = A.hackageVersion args
+                     }
 
   wait mvarDat
 
   return 1
+
 
 -- |
 --

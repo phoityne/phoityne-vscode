@@ -6,7 +6,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveDataTypeable  #-}
 {-# LANGUAGE FlexibleContexts    #-}
- 
 
 module Phoityne.GHCi.Command (
     SourcePosition(..)
@@ -45,7 +44,7 @@ import qualified Data.List as L
 import qualified Data.Map as M
 import qualified System.Exit as S
 import qualified Data.String.Utils as U
-
+import qualified Data.Version as V
 
 -- |
 --
@@ -96,6 +95,7 @@ data SourcePosition = SourcePosition {
   , endColNoSourcePosition    :: Int
   } deriving (Show, Read, Eq, Ord)
 
+
 -- |
 --
 data StackFrame = StackFrame {
@@ -133,13 +133,23 @@ start outHdl cmd opts cwd pmt envs = do
     setupGHCi _  (Left err) = return $ Left err
     setupGHCi ghci (Right msg) = do
       outHdl msg
-      setPrompt ghci
+      case getGHCiVersion msg of
+        Right v -> setPrompt ghci{versionGHCiProcess = v}
+        Left  m -> do
+          outHdl "\n------------------------------------\n"
+          outHdl m
+          outHdl "\n------------------------------------\n"
+          setPrompt ghci
 
-    setPrompt ghci@(GHCiProcess _ _ _ _ pmt) = set ghci outHdl ("prompt \"" ++ pmt ++ "\"") >>= \case
+    setPrompt ghci@(GHCiProcess _ _ _ _ pmt v) = set ghci outHdl ("prompt \"" ++ pmt ++ "\"") >>= \case
       Left err -> return $ Left err
-      Right _  -> setPrompt2 ghci
+      Right _  -> if v >= (V.Version [8, 2, 0] []) then setPromptCont ghci else setPrompt2 ghci
 
-    setPrompt2 ghci@(GHCiProcess _ _ _ _ pmt) = set ghci outHdl ("prompt2 \"" ++ pmt ++ "\"") >>= \case
+    setPrompt2 ghci@(GHCiProcess _ _ _ _ pmt _) = set ghci outHdl ("prompt2 \"" ++ pmt ++ "\"") >>= \case
+      Left err -> return $ Left err
+      Right _  -> return $ Right ghci
+
+    setPromptCont ghci@(GHCiProcess _ _ _ _ pmt _) = set ghci outHdl ("prompt-cont \"" ++ pmt ++ "\"") >>= \case
       Left err -> return $ Left err
       Right _  -> return $ Right ghci
 
@@ -156,6 +166,18 @@ start outHdl cmd opts cwd pmt envs = do
       char '*' >> manyTill anyChar (char '>') >> space >> eof
       return True
 
+    getGHCiVersion str = case parse getGHCiVersionParser "getGHCiVersion" str of
+      Right v -> Right v
+      Left e  -> Left $ "can not parse ghci version. [" ++ show e ++ "] assumes "  ++ V.showVersion _BASE_GHCI_VERSION ++ "."
+
+    getGHCiVersionParser = do
+      _ <- manyTill anyChar (try (string "GHCi, version "))
+      v1 <- manyTill digit (char '.')
+      v2 <- manyTill digit (char '.')
+      v3 <- manyTill digit (char ':')
+      return $ V.makeVersion [read v1, read v2, read v3]
+
+  
 -- |
 --
 quit :: GHCiProcess -> OutputHandler -> IO (Either ErrorData S.ExitCode)

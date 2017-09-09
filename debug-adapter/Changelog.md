@@ -1,4 +1,9 @@
 
+20170910 phoityne-vscode-0.0.16.0
+  * [ADD] supported ghc-8.2.0.
+  * [ADD] check hackage phoityen version, and show message for needs of updating.
+
+
 20170816 phoityne-vscode-0.0.15.0
   * [ADD] supported break-on-exception and break-on-error.
   * [ADD] [5](https://github.com/phoityne/phoityne-vscode/issues/5) :adding ghci run enviroment variable setting. 

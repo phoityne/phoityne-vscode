@@ -1,5 +1,5 @@
 name:                  phoityne-vscode
-version:               0.0.15.0
+version:               0.0.16.0
 synopsis:              ghci debug viewer on Visual Studio Code
 description:           Please see README.md
 license:               BSD3

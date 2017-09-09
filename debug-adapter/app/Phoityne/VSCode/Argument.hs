@@ -12,7 +12,8 @@ module Phoityne.VSCode.Argument (
 import Paths_phoityne_vscode (version)
 import System.Console.CmdArgs
 import qualified Control.Exception as E
-import Data.Version (showVersion)
+import Data.Version
+
 
 -- |
 --
@@ -23,7 +24,10 @@ instance E.Exception HelpExitException
 
 -- |
 --
-data ArgData = ModeA deriving (Data, Typeable, Show, Read, Eq)
+data ArgData = ModeA {
+                hackageVersion :: String
+              } deriving (Data, Typeable, Show, Read, Eq)
+
 
 -- |
 --
@@ -34,7 +38,11 @@ config = modes [confA]
          
   where
     confA = ModeA {
-
+            hackageVersion = showVersion version
+            &= name "hackage-version"
+            &= typ "VERSION"
+            &= explicit
+            &= help "hackage module version."
           } &= name "ModeA"
             &= details mdAMsg
             &= auto

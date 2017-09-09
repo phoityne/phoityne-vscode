@@ -8,6 +8,7 @@
 module Phoityne.GHCi.Process (
     ErrorData
   , GHCiProcess (..)
+  , _BASE_GHCI_VERSION
   , runProcess
   , exitProcess
   , writeLine
@@ -28,6 +29,7 @@ import qualified System.Environment as S
 import qualified Control.Exception as E
 import qualified Data.String.Utils as U
 import qualified Data.Map as M
+import qualified Data.Version as V
 
 -- |
 --  command error message.
@@ -35,15 +37,23 @@ import qualified Data.Map as M
 type ErrorData = String
 
 -- |
+--  command error message.
+--
+_BASE_GHCI_VERSION :: V.Version
+_BASE_GHCI_VERSION =  V.Version [8, 0, 0] []
+
+
+-- |
 --   GHCi process data.
 --
 data GHCiProcess = GHCiProcess
   {
-    inGHCiProcess     :: S.Handle
-  , outGHCiProcess    :: S.Handle
-  , errGHCiProcess    :: S.Handle
-  , procGHCiProcess   :: S.ProcessHandle
-  , promptGHCiProcess :: String
+    inGHCiProcess      :: S.Handle
+  , outGHCiProcess     :: S.Handle
+  , errGHCiProcess     :: S.Handle
+  , procGHCiProcess    :: S.ProcessHandle
+  , promptGHCiProcess  :: String
+  , versionGHCiProcess :: V.Version
   }
 
 -- |
@@ -82,7 +92,7 @@ runProcess cmd opts cwd pmt envs = flip E.catches handlers $ do
 
   ghciProc <- S.runProcess cmd opts (Just cwd) runEnvs (Just fromPhoityneHandle) (Just toPhoityneHandle) (Just toPhoityneHandle)
 
-  return . Right $ GHCiProcess toGHCiHandle fromGHCiHandle fromGHCiHandle ghciProc pmt
+  return . Right $ GHCiProcess toGHCiHandle fromGHCiHandle fromGHCiHandle ghciProc pmt _BASE_GHCI_VERSION
 
   where
     handlers = [ E.Handler someExcept ]
@@ -109,7 +119,7 @@ runProcess cmd opts cwd pmt envs = flip E.catches handlers $ do
 --   exit ghci.
 --
 exitProcess :: GHCiProcess -> IO (Either ErrorData S.ExitCode)
-exitProcess (GHCiProcess _ _ _ proc _) = flip E.catches handlers $ do
+exitProcess (GHCiProcess _ _ _ proc _ _) = flip E.catches handlers $ do
   code <- S.waitForProcess proc
   return . Right $ code
   where
@@ -120,7 +130,7 @@ exitProcess (GHCiProcess _ _ _ proc _) = flip E.catches handlers $ do
 --  write to ghci.
 --
 writeLine :: GHCiProcess -> String -> IO (Either ErrorData ())
-writeLine (GHCiProcess ghciIn _ _ _ _) writeData = flip E.catches handlers $ S.hIsOpen ghciIn >>= \case
+writeLine (GHCiProcess ghciIn _ _ _ _ _) writeData = flip E.catches handlers $ S.hIsOpen ghciIn >>= \case
   True  -> do
     S.hPutStrLn ghciIn writeData
     return $ Right ()
@@ -133,7 +143,7 @@ writeLine (GHCiProcess ghciIn _ _ _ _) writeData = flip E.catches handlers $ S.h
 --   read char till prompt.
 --
 readTillPrompt :: GHCiProcess -> IO (Either ErrorData String)
-readTillPrompt proc@(GHCiProcess _ _ _ _ pmt) = readCharWhile proc (not . U.endswith pmt)
+readTillPrompt proc@(GHCiProcess _ _ _ _ pmt _) = readCharWhile proc (not . U.endswith pmt)
 
 -- |
 --   read char till EOF.
@@ -146,7 +156,7 @@ readTillEOF proc = readCharWhile proc (const True)
 --   read char from ghci.
 --
 readCharWhile :: GHCiProcess -> (String -> Bool) -> IO (Either ErrorData String)
-readCharWhile (GHCiProcess _ ghciOut _ _ _) condProc = flip E.catches handlers $ S.hIsOpen ghciOut >>= \case
+readCharWhile (GHCiProcess _ ghciOut _ _ _ _) condProc = flip E.catches handlers $ S.hIsOpen ghciOut >>= \case
   True  -> go []
   False -> return . Left $ "handle not open."
   where
@@ -165,7 +175,7 @@ readCharWhile (GHCiProcess _ ghciOut _ _ _) condProc = flip E.catches handlers $
 --   read char from ghci.
 --
 readCharWhileIO :: GHCiProcess -> (String -> IO Bool) -> IO (Either ErrorData String)
-readCharWhileIO (GHCiProcess _ ghciOut _ _ _) condProc = flip E.catches handlers $ S.hIsOpen ghciOut >>= \case
+readCharWhileIO (GHCiProcess _ ghciOut _ _ _ _) condProc = flip E.catches handlers $ S.hIsOpen ghciOut >>= \case
   True  -> go []
   False -> return . Left $ "handle not open."
   where
@@ -185,7 +195,7 @@ readCharWhileIO (GHCiProcess _ ghciOut _ _ _) condProc = flip E.catches handlers
 --  read line from ghci.
 --
 readLineWhile :: GHCiProcess -> ([String] -> Bool) -> IO (Either ErrorData [String])
-readLineWhile (GHCiProcess _ ghciOut _ _ _) condProc = flip E.catches handlers $ S.hIsOpen ghciOut >>= \case
+readLineWhile (GHCiProcess _ ghciOut _ _ _ _) condProc = flip E.catches handlers $ S.hIsOpen ghciOut >>= \case
   True  -> go []
   False -> return . Left $ "handle not open."
   where
@@ -205,7 +215,7 @@ readLineWhile (GHCiProcess _ ghciOut _ _ _) condProc = flip E.catches handlers $
 --  read line from ghci.
 --
 readLineWhileIO :: GHCiProcess -> ([String] -> IO Bool) -> IO (Either ErrorData [String])
-readLineWhileIO (GHCiProcess _ ghciOut _ _ _) condProc = flip E.catches handlers $ S.hIsOpen ghciOut >>= \case
+readLineWhileIO (GHCiProcess _ ghciOut _ _ _ _) condProc = flip E.catches handlers $ S.hIsOpen ghciOut >>= \case
   True  -> go []
   False -> return . Left $ "handle not open."
   where

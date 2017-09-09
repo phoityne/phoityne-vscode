@@ -17,6 +17,7 @@ module Phoityne.VSCode.Core (
 
 import qualified Phoityne.GHCi as G
 
+import Paths_phoityne_vscode (version)
 import Control.Concurrent
 import Control.Monad
 import Data.List.Split
@@ -39,6 +40,7 @@ import qualified System.Log.Logger as L
 import qualified System.Log.Formatter as L
 import qualified System.Log.Handler as LH
 import qualified System.Log.Handler.Simple as LHS
+import qualified Data.Version as V
 
 import Phoityne.VSCode.Constant
 import Phoityne.VSCode.Utility
@@ -128,6 +130,7 @@ data DebugContextData =
   , ghciProcessDebugContextData             :: Maybe G.GHCiProcess
   , responseHandlerDebugContextData         :: BSL.ByteString -> IO ()
   , stopOnEntryDebugContextData             :: Bool
+  , hackagePackageVersionDebugContextData   :: String 
   }
 
 
@@ -259,6 +262,19 @@ _DEBUG_START_MSG = [
   , " "
   ]
 
+
+-- |
+--
+--
+_NEW_VERSION_MSG :: [String]
+_NEW_VERSION_MSG = [
+    ""
+  , "  New hackage module has been released."
+  , "  `stack update` and install new phoityen-vscode."
+  , " "
+  ]
+
+
 -- |
 --
 --
@@ -286,6 +302,7 @@ defaultDebugContextData = DebugContextData {
   , ghciProcessDebugContextData             = Nothing
   , responseHandlerDebugContextData         = BSL.putStr
   , stopOnEntryDebugContextData             = False
+  , hackagePackageVersionDebugContextData   = ""
   }
 
 
@@ -663,6 +680,9 @@ configurationDoneRequestHandler mvarCtx req = flip E.catches handlers $ do
 
     withProcess (Just ghciProc) = do
       sendConsoleEvent mvarCtx $ L.intercalate "\n" _DEBUG_START_MSG
+
+      checkVersion
+
       sendStdoutEvent mvarCtx $ G.promptGHCiProcess ghciProc
 
       resSeq <- getIncreasedResponseSequence mvarCtx
@@ -677,6 +697,28 @@ configurationDoneRequestHandler mvarCtx req = flip E.catches handlers $ do
           stopEvtStr = J.encode stopEvt
       sendEvent mvarCtx stopEvtStr
 
+    checkVersion = do
+      verStr <- hackagePackageVersionDebugContextData <$> (readMVar mvarCtx) 
+      verArg <- case getVersion verStr of
+        Right v  -> return v
+        Left err -> do
+          sendErrorEvent mvarCtx $ "[checkVersion] argument version parse error. " ++ err
+          return version
+
+      when (version < verArg) $ do
+        sendErrorEvent mvarCtx $  L.intercalate "\n" _NEW_VERSION_MSG
+        
+    getVersion :: String -> Either String V.Version
+    getVersion str = case parse getVersionParser "getVersionParser" str of
+      Right v -> Right v
+      Left e  -> Left $ "can not parse hackage module version. " ++ show e
+
+    getVersionParser = do
+      v1 <- manyTill digit (char '.')
+      v2 <- manyTill digit (char '.')
+      v3 <- manyTill digit (char '.')
+      v4 <- manyTill digit eof
+      return $ V.makeVersion [read v1, read v2, read v3, read v4]
 
 -- |
 --
