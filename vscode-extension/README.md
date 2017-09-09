@@ -7,15 +7,12 @@ Phoityne is a ghci debug viewer for Visual Studio Code.
 
 ## Information
 
-* [2017/08/16] phoityne-vscode released.  
-  * Marketplace [phoityne-vscode-0.0.13](https://marketplace.visualstudio.com/items?itemName=phoityne.phoityne-vscode)
-  * hackage [phoityne-vscode-0.0.15.0](https://hackage.haskell.org/package/phoityne-vscode)  
+* [2017/09/10] phoityne-vscode released.  
+  * Marketplace [phoityne-vscode-0.0.14](https://marketplace.visualstudio.com/items?itemName=phoityne.phoityne-vscode)
+  * hackage [phoityne-vscode-0.0.16.0](https://hackage.haskell.org/package/phoityne-vscode)  
   __Need update from hackage !!.__
 * Release Summary
-  * [ADD] supported break-on-exception and break-on-error.
-  * [ADD] [5](https://github.com/phoityne/phoityne-vscode/issues/5) : adding ghci run enviroment variable setting.  
-  __Check!! that there is a ""ghciEnv": {}," setting in the launch.json.__
-  * [MODIFY] [21](https://github.com/phoityne/phoityne-vscode/issues/21) : support evaluateName attribute for watch variable.
+    * [ADD] supported ghc-8.2.0.
 
 
 ![10_quick_start.gif](https://raw.githubusercontent.com/phoityne/phoityne-vscode/master/docs/10_quick_start.gif)  
@@ -24,7 +21,8 @@ Phoityne is a ghci debug viewer for Visual Studio Code.
 
 ## Important
 
-* __LIMITATION__: Breakpoint can be set in a .hs file which defineds "module ... where".
+* __LIMITATION__: Breakpoint can be set in a .hs file which defineds "module ... where".  
+  Phoityne can handle modules which match its folder hierarchy and file name.
 * __LIMITATION__: Source file extension must be ".hs"
 * __LIMITATION__: Can not use STDIN handle while debugging. 
 * __LIMITATION__: Changing ghci prompt is not allowed in the .ghci file. 
