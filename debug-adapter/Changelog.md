@@ -1,4 +1,11 @@
 
+20171008 phoityne-vscode-0.0.17.0
+  * [FIX] loading modules after ghci started, on ghc-8.2.1.
+  * [ADD] [24](https://github.com/phoityne/phoityne-vscode/issues/24) : add variable "ghciInitialPrompt" to launch.json file.
+  * [ADD] [28](https://github.com/phoityne/phoityne-vscode/issues/28) : escape backslash of startup hs file path.
+  * [ADD] to set any start point, added startup function and arguments valiables in the launch.json file.
+
+
 20170910 phoityne-vscode-0.0.16.0
   * [ADD] supported ghc-8.2.0.
   * [ADD] check hackage phoityen version, and show message for needs of updating.

@@ -1,7 +1,7 @@
 {
 	"name":        "phoityne-vscode",
 	"displayName": "Haskell GHCi debug viewer Phoityne",
-	"version":     "0.0.14",
+	"version":     "0.0.15",
 	"publisher":   "phoityne",
 	"description": "ghci debug viewer Phoityne for Visual Studio Code.",
 	"categories":  ["Debuggers"],
@@ -62,12 +62,12 @@
 					"required": [
 						"workspace",
 						"startup",
-						"logFile",
-						"logLevel",
+						"stopOnEntry",
 						"ghciPrompt",
 						"ghciCmd",
 						"ghciEnv",
-						"stopOnEntry",
+						"logFile",
+						"logLevel",
 						"hackageVersion"
 					],
 					"properties": {
@@ -81,20 +81,35 @@
 							"description": "Absolute path to the startup program.",
 							"default": "${workspaceRoot}/test/Spec.hs"
 						},
-						"logFile": {
+						"startupFunc": {
 							"type": "string",
-							"description": "Absolute path to the log file.",
-							"default": "${workspaceRoot}/.vscode/phoityne.log"
+							"description": "startup function.",
+							"default": ""
 						},
-						"logLevel": {
+						"startupArgs": {
 							"type": "string",
-							"description": "logging level.",
-							"default": "WARNING"
+							"description": "startup arguments.",
+							"default": ""
+						},
+						"stopOnEntry": {
+							"type": "boolean",
+							"description": "stop debuggin when ghci is launched.",
+							"default": true
+						},
+						"mainArgs": {
+							"type": "string",
+							"description": "main arguments set by ghci :set args commad.",
+							"default": ""
 						},
 						"ghciPrompt": {
 							"type": "string",
 							"description": "ghci prompt string.",
 							"default": "Phoityne>>= "
+						},
+						"ghciInitialPrompt": {
+							"type": "string",
+							"description": "ghci initial prompt.",
+							"default": "Prelude>"
 						},
 						"ghciCmd": {
 							"type": "string",
@@ -106,20 +121,20 @@
 							"description": "ghci runtime environments.",
 							"default": {}
 						},
-						"stopOnEntry": {
-							"type": "boolean",
-							"description": "stop debuggin when ghci is launched.",
-							"default": true
+						"logFile": {
+							"type": "string",
+							"description": "Absolute path to the log file.",
+							"default": "${workspaceRoot}/.vscode/phoityne.log"
+						},
+						"logLevel": {
+							"type": "string",
+							"description": "logging level.",
+							"default": "WARNING"
 						},
 						"hackageVersion": {
 							"type": "string",
 							"description": "hackage phoityne-vscode version.",
 							"default": "0.0.15.0"
-						},
-						"mainArgs": {
-							"type": "string",
-							"description": "main arguments set by ghci :set args commad.",
-							"default": ""
 						}
 					}
 				}
@@ -132,14 +147,17 @@
 					"internalConsoleOptions": "openOnSessionStart",
 					"workspace": "${workspaceRoot}",
 					"startup": "${workspaceRoot}/test/Spec.hs",
-					"logFile": "${workspaceRoot}/.vscode/phoityne.log",
-					"logLevel": "WARNING",
+					"startupFunc": "",
+					"startupArgs": "",
+					"stopOnEntry": true,
+					"mainArgs": "",
 					"ghciPrompt": "H>>= ",
+					"ghciInitialPrompt":"Prelude>",
 					"ghciCmd": "stack ghci --test --no-load --no-build --main-is TARGET --ghci-options -fprint-evld-with-show",
 					"ghciEnv": {},
-					"stopOnEntry": true,
-					"hackageVersion": "0.0.15.0",
-					"mainArgs": ""
+					"logFile": "${workspaceRoot}/.vscode/phoityne.log",
+					"logLevel": "WARNING",
+					"hackageVersion": "0.0.15.0"
 				}
 			]
 		}]

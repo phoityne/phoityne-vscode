@@ -20,6 +20,7 @@ module Phoityne.GHCi.Command (
   , setFuncBreak
   , delete
   , traceMain
+  , traceFunc
   , trace
   , step
   , stepLocal
@@ -50,11 +51,6 @@ import qualified Data.Version as V
 --
 _HS_FILE_EXT :: String
 _HS_FILE_EXT = ".hs"
-
--- |
---
-_GHCI_PROMPT :: String
-_GHCI_PROMPT = "Prelude> "
 
 
 -- |
@@ -121,9 +117,10 @@ start :: OutputHandler
       -> [GHCiOption]
       -> FilePath
       -> String
+      -> String
       -> M.Map String String
       -> IO (Either ErrorData GHCiProcess)
-start outHdl cmd opts cwd pmt envs = do
+start outHdl cmd opts cwd initPmt pmt envs = do
   outHdl $ L.intercalate " " $ (cmd : opts) ++ ["in " ++ cwd, "\n"]
   runProcess cmd opts cwd pmt envs >>= withProcess
   where
@@ -154,7 +151,7 @@ start outHdl cmd opts cwd pmt envs = do
       Right _  -> return $ Right ghci
 
     endOfStartMsg msg
-      | U.endswith _GHCI_PROMPT msg = True
+      | U.endswith initPmt msg = True
       | endOfModLoadPrompt (last (lines msg)) = True
       | otherwise = False
 
@@ -210,7 +207,7 @@ loadFile :: GHCiProcess
          -> FilePath
          -> IO (Either ErrorData [ModuleName])
 loadFile ghci outHdl cmdArg = do
-  let cmd = ":load " ++ cmdArg
+  let cmd = ":load " ++ (normalize cmdArg)
   outHdl $ cmd ++ "\n"
   writeLine ghci cmd >>= \case
     Left err -> return $ Left err
@@ -232,22 +229,29 @@ loadFile ghci outHdl cmdArg = do
       Left err -> return $ Left err
       Right msg -> do
         outHdl msg
-        withLoadResultMsg (takeLastMsg msges)
-    
-    -- | 
-    -- Ok, modules loaded: Lib, Main, LibSpec. -> [Lib, Main, LibSpec]
-    -- Failed, modules loaded: none.
-    --
-    withLoadResultMsg msg
-      | U.startswith "Ok," msg =
-        return $ Right
-               $ U.split ", "
-               $ U.replace "Ok, modules loaded: " ""
-               $ init
-               $ U.strip
-               $ msg
-      | otherwise = return $ Left $ "file load error. '" ++ cmdArg ++ "'"
+        return . Right $ foldr getModName [] msges
+
+    -- |
+    -- H>>= :load d:\haskell\unit-testing/test/Spec.hs
+    -- [1 of 3] Compiling Lib              ( D:\haskell\unit-testing\src\Lib.hs, interpreted )
+    -- [2 of 3] Compiling LibSpec          ( D:\haskell\unit-testing\test\LibSpec.hs, interpreted )
+    -- [3 of 3] Compiling Main             ( D:\haskell\unit-testing\test\Spec.hs, interpreted )
+    -- Ok, 3 modules loaded.
+    -- H>>= 
+    -- 
+    getModName msg acc = case parse getModNameParser "getModNameParser" msg of
+      Right mod -> mod:acc
+      Left _    -> acc
       
+    getModNameParser = 
+      manyTill anyChar (try (string " Compiling ")) >> manyTill anyChar (char ' ')
+ 
+    normalize path
+      | True  == L.isPrefixOf "\"" path = path
+      | False == L.isInfixOf  " "  path = path
+      | otherwise = "\"" ++ path ++ "\""
+      
+
 
 -- |
 --
@@ -318,8 +322,13 @@ delete ghci outHdl bid = do
 -- |
 --
 traceMain :: GHCiProcess -> OutputHandler -> IO (Either ErrorData (Maybe SourcePosition))
-traceMain ghci outHdl = do
-  let cmd = ":trace main"
+traceMain ghci outHdl = traceFunc ghci outHdl "main" ""
+
+-- |
+--
+traceFunc :: GHCiProcess -> OutputHandler -> String -> String -> IO (Either ErrorData (Maybe SourcePosition))
+traceFunc ghci outHdl func args = do
+  let cmd = ":trace " ++ func ++ if null args then "" else  " " ++ args
   exec ghci outHdl cmd >>= \case
     Left err  -> return $ Left err
     Right msg -> return $ mayException msg

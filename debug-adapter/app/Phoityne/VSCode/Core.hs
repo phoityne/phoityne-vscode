@@ -123,6 +123,9 @@ data DebugContextData =
   , breakPointDatasDebugContextData         :: BreakPointDatas
   , workspaceDebugContextData               :: FilePath
   , startupDebugContextData                 :: FilePath
+  , startupFuncDebugContextData             :: String
+  , startupArgsDebugContextData             :: String
+  , startupModuleDebugContextData           :: ModuleName
   , debugStartedDebugContextData            :: Bool
   , debugStoppedPosDebugContextData         :: Maybe G.SourcePosition
   , currentFrameIdDebugContextData          :: Int
@@ -295,6 +298,9 @@ defaultDebugContextData = DebugContextData {
   , breakPointDatasDebugContextData         = M.fromList []
   , workspaceDebugContextData               = ""
   , startupDebugContextData                 = ""
+  , startupFuncDebugContextData             = ""
+  , startupArgsDebugContextData             = ""
+  , startupModuleDebugContextData           = ""
   , debugStartedDebugContextData            = False
   , debugStoppedPosDebugContextData         = Nothing
   , currentFrameIdDebugContextData          = 0
@@ -575,7 +581,9 @@ launchRequestHandler mvarCtx req@(J.LaunchRequest _ _ _ args) = flip E.catches h
   ctx <- takeMVar mvarCtx
   putMVar mvarCtx ctx {
       workspaceDebugContextData   = J.workspaceLaunchRequestArguments args
-    , startupDebugContextData     = J.startupLaunchRequestArguments args
+    , startupDebugContextData     = U.replace "\\" "/" (J.startupLaunchRequestArguments args)
+    , startupFuncDebugContextData = maybe "" (\s->if null (U.strip s) then "" else  (U.strip s)) (J.startupFuncLaunchRequestArguments args)
+    , startupArgsDebugContextData = maybe "" (id) (J.startupArgsLaunchRequestArguments args)
     , stopOnEntryDebugContextData = J.stopOnEntryLaunchRequestArguments args
     }
 
@@ -592,9 +600,12 @@ launchRequestHandler mvarCtx req@(J.LaunchRequest _ _ _ args) = flip E.catches h
 
   prepareTasksJsonFile
 
+  let initPmt = maybe _GHCI_PROMPT id (J.ghciInitialPromptLaunchRequestArguments args)
+  debugM _LOG_NAME $ "ghci initial prompt [" ++ initPmt ++ "]."
 
   runGHCi mvarCtx
           (J.ghciCmdLaunchRequestArguments args)
+          initPmt
           (J.ghciPromptLaunchRequestArguments args)
           (J.ghciEnvLaunchRequestArguments args)
            >>= ghciLaunched 
@@ -635,12 +646,14 @@ launchRequestHandler mvarCtx req@(J.LaunchRequest _ _ _ args) = flip E.catches h
       ctx <- takeMVar mvarCtx
       putMVar mvarCtx ctx{ghciProcessDebugContextData = Just ghciProc}
 
-      startupRes <- loadHsFile mvarCtx (J.startupLaunchRequestArguments args)
-
-      when (False == startupRes) $ do
-        let msg = L.intercalate " " ["startup load error.", J.startupLaunchRequestArguments args]
-        sendErrorEvent mvarCtx $ msg ++ "\n"
-
+      loadHsFile mvarCtx (startupDebugContextData ctx) >>= \case
+        Left _ -> do
+          let msg = L.intercalate " " ["startup load error.", startupDebugContextData ctx]
+          sendErrorEvent mvarCtx $ msg ++ "\n"
+        Right modName -> do
+          ctx <- takeMVar mvarCtx
+          putMVar mvarCtx ctx{startupModuleDebugContextData = modName}
+  
       setMainArgs ghciProc (J.mainArgsLaunchRequestArguments args) >>= \case
         Right _  -> return ()
         Left err -> do
@@ -760,7 +773,9 @@ setBreakpointsRequestHandler mvarCtx req = flip E.catches handlers $ do
       source  = J.sourceSetBreakpointsRequestArguments args
       path    = J.pathSource source
       reqBps  = J.breakpointsSetBreakpointsRequestArguments args
-      bps     = map (convBp cwd path) reqBps
+      startup = startupDebugContextData ctx
+      stMod   = startupModuleDebugContextData ctx
+      bps     = map (convBp cwd path startup stMod) reqBps
 
   delete path
   resBody <- insert bps
@@ -778,9 +793,9 @@ setBreakpointsRequestHandler mvarCtx req = flip E.catches handlers $ do
       sendResponse mvarCtx $ J.encode $ J.errorSetBreakpointsResponse resSeq req msg 
       sendErrorEvent mvarCtx msg
 
-    convBp cwd path (J.SourceBreakpoint lineNo colNo cond hitCond) =
+    convBp cwd path startup stMod (J.SourceBreakpoint lineNo colNo cond hitCond) =
       BreakPointData {
-        nameBreakPointData       = src2mod cwd path
+        nameBreakPointData       = src2mod cwd path startup stMod
       , srcPosBreakPointData     = G.SourcePosition path lineNo (maybe (-1) id colNo) (-1) (-1)
       , breakNoBreakPointData    = Nothing
       , conditionBreakPointData  = normalizeCond cond
@@ -1144,13 +1159,19 @@ stackTraceRequestHandler mvarCtx req = flip E.catches handlers $ do
         cfs <- defaultFrame pos
         foldM (convTrace2Frame cwd) cfs dats
 
-    convTrace2Frame cwd xs (G.StackFrame traceId funcName (G.SourcePosition file sl sc el ec)) = return $ 
-      J.StackFrame traceId funcName (J.Source (Just (src2mod cwd file)) file Nothing Nothing) sl sc el ec : xs
+    convTrace2Frame cwd xs (G.StackFrame traceId funcName (G.SourcePosition file sl sc el ec)) = do
+      ctx <- readMVar mvarCtx
+      let startup = startupDebugContextData ctx
+          stMod   = startupModuleDebugContextData ctx
+
+      return $ J.StackFrame traceId funcName (J.Source (Just (src2mod cwd file startup stMod)) file Nothing Nothing) sl sc el ec : xs
 
     defaultFrame (G.SourcePosition file sl sc el ec) = do
       ctx <- readMVar mvarCtx
-      let cwd = workspaceDebugContextData ctx
-          csf = J.StackFrame 0 "[BP]" (J.Source (Just (src2mod cwd file)) file Nothing Nothing) sl sc el ec
+      let startup = startupDebugContextData ctx
+          stMod   = startupModuleDebugContextData ctx
+          cwd = workspaceDebugContextData ctx
+          csf = J.StackFrame 0 "[BP]" (J.Source (Just (src2mod cwd file startup stMod)) file Nothing Nothing) sl sc el ec
       return  [csf]
 
     outHdl = debugM _LOG_NAME
@@ -1426,8 +1447,18 @@ completionsRequestHandler mvarCtx req = flip E.catches handlers $ do
 -- |
 --
 --
-src2mod :: FilePath -> FilePath -> String
-src2mod cwd src 
+src2mod :: FilePath -> FilePath -> FilePath -> String -> String
+src2mod cwd src startup stMod 
+ | normalized == startup = stMod
+ | otherwise = path2mod cwd src
+ where
+  normalized = U.replace "\\" "/" src
+
+-- |
+--
+--
+path2mod :: FilePath -> FilePath -> String
+path2mod cwd src
   | length cwd >= length src = ""
   | otherwise = L.intercalate "."
       $ map takeBaseName
@@ -1460,16 +1491,17 @@ getIncreasedResponseSequence mvarCtx = do
 runGHCi :: MVar DebugContextData
         -> String
         -> String
+        -> String
         -> M.Map String String
         -> IO (Either G.ErrorData G.GHCiProcess)
-runGHCi mvarCtx cmdStr pmt envs = do
+runGHCi mvarCtx cmdStr initPmt pmt envs = do
   ctx <- readMVar mvarCtx
   let cmdList = filter (not.null) $ U.split " " cmdStr
       cmd  = head cmdList
       opts = tail cmdList
       cwd  = workspaceDebugContextData ctx
   
-  G.start outHdl cmd opts cwd pmt envs
+  G.start outHdl cmd opts cwd initPmt pmt envs
   
   where
     outHdl = sendStdoutEvent mvarCtx 
@@ -1478,11 +1510,11 @@ runGHCi mvarCtx cmdStr pmt envs = do
 -- |
 --
 --
-loadHsFile :: MVar DebugContextData -> FilePath -> IO Bool
+loadHsFile :: MVar DebugContextData -> FilePath -> IO (Either G.ErrorData ModuleName)
 loadHsFile mvarCtx path = ghciProcessDebugContextData <$> (readMVar mvarCtx) >>= \case
   Nothing -> do
     sendErrorEvent mvarCtx $ "load file fail.[" ++ path ++ "]" ++ " ghci not started."
-    return False
+    return $ Left ""
   Just ghciProc -> G.loadFile ghciProc outHdl path >>= withFileLoadResult ghciProc
     
   where
@@ -1491,13 +1523,17 @@ loadHsFile mvarCtx path = ghciProcessDebugContextData <$> (readMVar mvarCtx) >>=
 
     withFileLoadResult _ (Left err) = do
       sendErrorEvent mvarCtx $ "load file fail.[" ++ path ++ "]" ++ " " ++ err
-      return False
+      return $ Left ""
+
+    withFileLoadResult _ (Right []) = do
+      sendErrorEvent mvarCtx $ "load file fail.[" ++ path ++ "]"
+      return $ Left ""
 
     withFileLoadResult ghciProc (Right mods) = G.loadModule ghciProc outHdl mods >>= \case
       Left err -> do  
         sendErrorEvent mvarCtx $ "load module fail. " ++ show mods ++ " " ++ err
-        return False
-      Right _ -> return True
+        return $ Left ""
+      Right _ -> return . Right $ last mods
 
 
 -- |
@@ -1695,7 +1731,14 @@ proceedDebug mvarCtx = do
     -- |
     --
     withModified True _ = sendRestartEvent mvarCtx  
-    withModified False ghciProc = G.traceMain ghciProc outHdl >>= \case
+    withModified False ghciProc = do
+      ctx <- readMVar mvarCtx
+      if null (startupFuncDebugContextData ctx)
+        then withFunc ghciProc "main" ""
+        else withFunc ghciProc (startupFuncDebugContextData ctx) (startupArgsDebugContextData ctx)
+      
+      
+    withFunc ghciProc func args = G.traceFunc ghciProc outHdl func args >>= \case
       Left err  -> do
         -- end of debugging successfully.
         debugM _LOG_NAME $ show err
