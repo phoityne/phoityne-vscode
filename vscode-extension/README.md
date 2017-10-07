@@ -202,7 +202,7 @@ For example, when specifying the following startDebug function,
 
     startDebug :: String -> IO ()
     startDebug name = do
-      putStrLn "hellow"
+      putStrLn "hello"
       putStrLn name 
 
 set the valiavles in the launch.json file.
