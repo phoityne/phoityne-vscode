@@ -185,7 +185,7 @@ Make sure needs of the last space, and don't forget adding it.
 
 #### setting the startup hs file
 
-Set the startup variable to the path of .hs file which defining main function.
+Set the startup variable to the path of .hs file in which main function is defined.
 
     % diff .vscode/launch.json.old .vscode/launch.json
     10c10
