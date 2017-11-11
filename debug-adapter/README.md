@@ -7,15 +7,13 @@ Phoityne is a ghci debug viewer for Visual Studio Code.
 
 ## Information
 
-* [2017/10/08] phoityne-vscode released.  
-  * Marketplace [phoityne-vscode-0.0.15](https://marketplace.visualstudio.com/items?itemName=phoityne.phoityne-vscode)
-  * hackage [phoityne-vscode-0.0.17.0](https://hackage.haskell.org/package/phoityne-vscode)  
+* [2017/11/12] phoityne-vscode released.  
+  * Marketplace [phoityne-vscode-0.0.16](https://marketplace.visualstudio.com/items?itemName=phoityne.phoityne-vscode)
+  * hackage [phoityne-vscode-0.0.18.0](https://hackage.haskell.org/package/phoityne-vscode)  
   __Need update from hackage !!.__
 * Release Summary
-  * [FIX] loading modules after ghci started, on ghc-8.2.1.
-  * [ADD] [24](https://github.com/phoityne/phoityne-vscode/issues/24) : add variable "ghciInitialPrompt" to launch.json file.
-  * [ADD] [28](https://github.com/phoityne/phoityne-vscode/issues/28) : escape backslash of startup hs file path.
-  * [ADD] to set any start point, added startup function and arguments valiables in the launch.json file.
+  * [FIX] [29](https://github.com/phoityne/phoityne-vscode/issues/29) : Space in filename and reload on save bug.
+  * [MODIFY] [20](https://github.com/phoityne/phoityne-vscode/issues/20) : During stopping on breakpoints selection is one character less.
   
 
 ![10_quick_start.gif](https://raw.githubusercontent.com/phoityne/phoityne-vscode/master/docs/10_quick_start.gif)  

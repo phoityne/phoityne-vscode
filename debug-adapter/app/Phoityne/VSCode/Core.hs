@@ -1,7 +1,6 @@
 {-# LANGUAGE GADTs               #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE MultiWayIf          #-}
-{-# LANGUAGE BinaryLiterals      #-}
 {-# LANGUAGE TemplateHaskell     #-}
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -756,6 +755,8 @@ disconnectRequestHandler mvarCtx req = do
 
     withExitCode (Right code) = do
       sendStdoutEvent mvarCtx $ show code
+      sendStdoutEvent mvarCtx "\n"
+      sendStdoutEvent mvarCtx "\n"
       resSeq <- getIncreasedResponseSequence mvarCtx
       sendResponse mvarCtx $ J.encode $ J.defaultDisconnectResponse resSeq req
 

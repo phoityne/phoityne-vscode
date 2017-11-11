@@ -1,4 +1,9 @@
 
+20171112 phoityne-vscode-0.0.18.0
+  * [FIX] [29](https://github.com/phoityne/phoityne-vscode/issues/29) : Space in filename and reload on save bug.
+  * [MODIFY] [20](https://github.com/phoityne/phoityne-vscode/issues/20) : During stopping on breakpoints selection is one character less.
+
+
 20171008 phoityne-vscode-0.0.17.0
   * [FIX] loading modules after ghci started, on ghc-8.2.1.
   * [ADD] [24](https://github.com/phoityne/phoityne-vscode/issues/24) : add variable "ghciInitialPrompt" to launch.json file.

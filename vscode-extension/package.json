@@ -1,7 +1,7 @@
 {
 	"name":        "phoityne-vscode",
 	"displayName": "Haskell GHCi debug viewer Phoityne",
-	"version":     "0.0.15",
+	"version":     "0.0.16",
 	"publisher":   "phoityne",
 	"description": "ghci debug viewer Phoityne for Visual Studio Code.",
 	"categories":  ["Debuggers"],
@@ -134,7 +134,7 @@
 						"hackageVersion": {
 							"type": "string",
 							"description": "hackage phoityne-vscode version.",
-							"default": "0.0.15.0"
+							"default": "0.0.18.0"
 						}
 					}
 				}
@@ -157,7 +157,7 @@
 					"ghciEnv": {},
 					"logFile": "${workspaceRoot}/.vscode/phoityne.log",
 					"logLevel": "WARNING",
-					"hackageVersion": "0.0.15.0"
+					"hackageVersion": "0.0.18.0"
 				}
 			]
 		}]

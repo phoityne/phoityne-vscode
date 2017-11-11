@@ -1,7 +1,6 @@
 {-# LANGUAGE GADTs               #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE MultiWayIf          #-}
-{-# LANGUAGE BinaryLiterals      #-}
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveDataTypeable  #-}
@@ -37,7 +36,7 @@ module Phoityne.GHCi.Command (
   , complete
   ) where
 
-import Phoityne.GHCi.Process
+import Control.Concurrent
 import Text.Parsec
 import Data.Functor.Identity
 import Data.Char
@@ -46,6 +45,8 @@ import qualified Data.Map as M
 import qualified System.Exit as S
 import qualified Data.String.Utils as U
 import qualified Data.Version as V
+
+import Phoityne.GHCi.Process
 
 -- |
 --
@@ -138,15 +139,15 @@ start outHdl cmd opts cwd initPmt pmt envs = do
           outHdl "\n------------------------------------\n"
           setPrompt ghci
 
-    setPrompt ghci@(GHCiProcess _ _ _ _ pmt v) = set ghci outHdl ("prompt \"" ++ pmt ++ "\"") >>= \case
+    setPrompt ghci@(GHCiProcess _ _ _ _ pmt v _) = set ghci outHdl ("prompt \"" ++ pmt ++ "\"") >>= \case
       Left err -> return $ Left err
       Right _  -> if v >= (V.Version [8, 2, 0] []) then setPromptCont ghci else setPrompt2 ghci
 
-    setPrompt2 ghci@(GHCiProcess _ _ _ _ pmt _) = set ghci outHdl ("prompt2 \"" ++ pmt ++ "\"") >>= \case
+    setPrompt2 ghci@(GHCiProcess _ _ _ _ pmt _ _) = set ghci outHdl ("prompt2 \"" ++ pmt ++ "\"") >>= \case
       Left err -> return $ Left err
       Right _  -> return $ Right ghci
 
-    setPromptCont ghci@(GHCiProcess _ _ _ _ pmt _) = set ghci outHdl ("prompt-cont \"" ++ pmt ++ "\"") >>= \case
+    setPromptCont ghci@(GHCiProcess _ _ _ _ pmt _ _) = set ghci outHdl ("prompt-cont \"" ++ pmt ++ "\"") >>= \case
       Left err -> return $ Left err
       Right _  -> return $ Right ghci
 
@@ -209,10 +210,14 @@ loadFile :: GHCiProcess
 loadFile ghci outHdl cmdArg = do
   let cmd = ":load " ++ (normalize cmdArg)
   outHdl $ cmd ++ "\n"
-  writeLine ghci cmd >>= \case
+
+  lock ghci
+  res <- writeLine ghci cmd >>= \case
     Left err -> return $ Left err
     Right _ -> readLineWhileIO ghci endOfLoadFile >>= withLoadResult
+  unlock ghci
 
+  return res
   where
     endOfLoadFile acc = do
       let curStr = takeLastMsg acc
@@ -249,7 +254,7 @@ loadFile ghci outHdl cmdArg = do
     normalize path
       | True  == L.isPrefixOf "\"" path = path
       | False == L.isInfixOf  " "  path = path
-      | otherwise = "\"" ++ path ++ "\""
+      | otherwise = "\"" ++  (U.replace "\\" "\\\\" path) ++ "\""
       
 
 
@@ -258,10 +263,15 @@ loadFile ghci outHdl cmdArg = do
 loadModule :: GHCiProcess -> OutputHandler -> [ModuleName] -> IO (Either ErrorData ())
 loadModule ghci outHdl mods = do
   let cmd = ":module + *" ++ U.join " *" mods
-  exec ghci outHdl cmd >>= \case
+
+  lock ghci
+  res <- exec ghci outHdl cmd >>= \case
     Left err -> return $ Left err
     Right _  -> return $ Right ()
-
+  unlock ghci
+    
+  return res
+  
 -- |
 --
 setBreak :: GHCiProcess
@@ -272,10 +282,14 @@ setBreak :: GHCiProcess
          -> IO (Either ErrorData (BreakId, SourcePosition))
 setBreak ghci outHdl modName lineNo col = do
   let cmd = ":break " ++ modName ++ " " ++ show lineNo ++ (if (-1) == col then "" else " " ++ show col)
-  exec ghci outHdl cmd >>= \case
+
+  lock ghci
+  res <- exec ghci outHdl cmd >>= \case
     Left err -> return $ Left err
     Right msg -> getBreakId msg
-
+  unlock ghci
+    
+  return res
   where
     getBreakId msg = case parse getBreakIdParser "getBreakId" msg of
       Right no  -> return $ Right no 
@@ -295,10 +309,14 @@ setFuncBreak :: GHCiProcess
              -> IO (Either ErrorData (BreakId, SourcePosition))
 setFuncBreak ghci outHdl name = do
   let cmd = ":break " ++ name
-  exec ghci outHdl cmd >>= \case
+
+  lock ghci
+  res <- exec ghci outHdl cmd >>= \case
     Left err -> return $ Left err
     Right msg -> getBreakId msg
-
+  unlock ghci
+    
+  return res
   where
     getBreakId msg = case parse getBreakIdParser "getBreakId" msg of
       Right no  -> return $ Right no 
@@ -315,10 +333,14 @@ setFuncBreak ghci outHdl name = do
 delete :: GHCiProcess -> OutputHandler -> BreakId -> IO (Either ErrorData ())
 delete ghci outHdl bid = do
   let cmd = ":delete " ++ show bid
-  exec ghci outHdl cmd >>= \case
+
+  lock ghci
+  res <- exec ghci outHdl cmd >>= \case
     Left err -> return $ Left err
     Right _  -> return $ Right ()
-
+  unlock ghci
+    
+  return res
 -- |
 --
 traceMain :: GHCiProcess -> OutputHandler -> IO (Either ErrorData (Maybe SourcePosition))
@@ -528,7 +550,7 @@ parsePosition :: forall u. ParsecT String u Identity SourcePosition
 parsePosition = do
   path <- manyTill anyChar (try (string (_HS_FILE_EXT ++ ":")))
   (sl, sn, el, en) <- try parseA <|> try parseB <|> try parseC
-  return $ SourcePosition (drive2lower path ++ _HS_FILE_EXT) sl sn el en
+  return $ SourcePosition (drive2lower path ++ _HS_FILE_EXT) sl sn el (en+1)
   where
     parseA = do
       ln <- manyTill digit (char ':')
@@ -668,3 +690,13 @@ extractErrorResult str = case parse errorResultParser "extractErrorResult" str o
       _ <- manyTill anyChar (try (string "<interactive>"))
       _ <- manyTill anyChar (char ' ')
       manyTill anyChar eof
+
+-- |
+--
+lock ::  GHCiProcess -> IO ()
+lock ghci = takeMVar (lockGHCiProcess ghci) >> return ()
+
+-- |
+--
+unlock ::  GHCiProcess -> IO ()
+unlock ghci = putMVar (lockGHCiProcess ghci) Lock
