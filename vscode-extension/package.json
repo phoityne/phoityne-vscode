@@ -1,9 +1,9 @@
 {
 	"name":        "phoityne-vscode",
-	"displayName": "Haskell GHCi debug viewer Phoityne",
-	"version":     "0.0.16",
+	"displayName": "Haskell GHCi Debug Adapter Phoityne",
+	"version":     "0.0.17",
 	"publisher":   "phoityne",
-	"description": "ghci debug viewer Phoityne for Visual Studio Code.",
+	"description": "Haskell GHCi Debug Adapter Phoityne for Visual Studio Code.",
 	"categories":  ["Debuggers"],
 	"author":      {"name": "phoityne.hs"},
 	"license": "BSD3",
@@ -11,7 +11,7 @@
 		"url": "https://github.com/phoityne/phoityne-vscode/issues"
 	},
 	"private": false,
-	"engines": {"vscode": "^1.0.0"},
+	"engines": {"vscode": "^1.14.0"},
 	"dependencies": {},
 	"icon": "images/HaskellLogo.png",
 	"keywords": [
@@ -46,7 +46,7 @@
 		],
 		"debuggers": [{
 			"type": "ghc",
-			"label": "ghci debug viewer Phoityne",
+			"label": "haskell-debug-adapter",
 			"enableBreakpointsFor": { "languageIds": ["haskell"] },
 			"windows": {
 				"program": "phoityne-vscode.bat"
@@ -130,11 +130,6 @@
 							"type": "string",
 							"description": "logging level.",
 							"default": "WARNING"
-						},
-						"hackageVersion": {
-							"type": "string",
-							"description": "hackage phoityne-vscode version.",
-							"default": "0.0.18.0"
 						}
 					}
 				}
@@ -142,7 +137,7 @@
 			"initialConfigurations": [
 				{
 					"type": "ghc",
-					"name": "ghci debug viewer Phoityne",
+					"name": "haskell-debug-adapter",
 					"request": "launch",
 					"internalConsoleOptions": "openOnSessionStart",
 					"workspace": "${workspaceRoot}",
@@ -156,8 +151,7 @@
 					"ghciCmd": "stack ghci --test --no-load --no-build --main-is TARGET --ghci-options -fprint-evld-with-show",
 					"ghciEnv": {},
 					"logFile": "${workspaceRoot}/.vscode/phoityne.log",
-					"logLevel": "WARNING",
-					"hackageVersion": "0.0.18.0"
+					"logLevel": "WARNING"
 				}
 			]
 		}]

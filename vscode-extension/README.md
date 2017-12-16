@@ -7,14 +7,15 @@ Phoityne is a ghci debug viewer for Visual Studio Code.
 
 ## Information
 
-* [2017/11/12] phoityne-vscode released.  
-  * Marketplace [phoityne-vscode-0.0.16](https://marketplace.visualstudio.com/items?itemName=phoityne.phoityne-vscode)
-  * hackage [phoityne-vscode-0.0.18.0](https://hackage.haskell.org/package/phoityne-vscode)  
+* [2017/12/16] phoityne-vscode released.  
+  * Marketplace [phoityne-vscode-0.0.17](https://marketplace.visualstudio.com/items?itemName=phoityne.phoityne-vscode)
+  * hackage [phoityne-vscode-0.0.19.0](https://hackage.haskell.org/package/phoityne-vscode)  
   __Need update from hackage !!.__
 * Release Summary
-  * [FIX] [29](https://github.com/phoityne/phoityne-vscode/issues/29) : Space in filename and reload on save bug.
-  * [MODIFY] [20](https://github.com/phoityne/phoityne-vscode/issues/20) : During stopping on breakpoints selection is one character less.
-  
+  * [ADD] checking hackage package version and inform on console if using lower version.
+  * [MODIFY] Supporting Multi-root Workspaces. version up tasks.json.
+  * [MODIFY] Supporting Multi-root Workspaces. setBreakpointsRequest.  
+    __Need recreate .vscde/launch.json and tasks.json in the project folder !!.__
 
 ![10_quick_start.gif](https://raw.githubusercontent.com/phoityne/phoityne-vscode/master/docs/10_quick_start.gif)  
 (This sample project is available from [here](https://github.com/phoityne/stack-project-template).)

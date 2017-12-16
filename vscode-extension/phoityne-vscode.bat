@@ -12,5 +12,5 @@ if "%pohityne_path%" equ "" (
 )
 
 
-phoityne-vscode.exe
+phoityne-vscode.exe --hackage-version=0.0.19.0
 
