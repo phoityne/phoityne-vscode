@@ -1,4 +1,10 @@
 
+20171216 phoityne-vscode-0.0.19.0
+  * [ADD] checking hackage package version and inform on console if using lower version.
+  * [MODIFY] Supporting Multi-root Workspaces. version up tasks.json.
+  * [MODIFY] Supporting Multi-root Workspaces. setBreakpointsRequest. 
+
+
 20171112 phoityne-vscode-0.0.18.0
   * [FIX] [29](https://github.com/phoityne/phoityne-vscode/issues/29) : Space in filename and reload on save bug.
   * [MODIFY] [20](https://github.com/phoityne/phoityne-vscode/issues/20) : During stopping on breakpoints selection is one character less.

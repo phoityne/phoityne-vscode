@@ -27,6 +27,7 @@ module Phoityne.GHCi.Command (
   , back
   , forward
   , bindings
+  , bindingsDAP
   , force
   , info
   , showType
@@ -431,6 +432,19 @@ bindings ghci outHdl = do
       if 1 == length msgs then return $ Right []
         else return $ extractBindingBindingDatas $ unlines $ init $ msgs
 
+-- |
+--
+bindingsDAP :: GHCiProcess -> OutputHandler -> Int -> IO (Either ErrorData String)
+bindingsDAP ghci outHdl idx = do
+  let cmd = ":dap-bindings " ++ show idx
+      dapHead = "<<DAP>>"
+  exec ghci outHdl cmd >>= \case
+    Left err  -> return $ Left err
+    Right msg -> do
+      let msgs = filter (L.isPrefixOf dapHead) $ lines msg
+      if 1 == length msgs then return $ Right $ drop (length dapHead) $ head msgs
+        else return $ Left $ "[dap] error. header " ++ dapHead ++ "not found. " ++ msg 
+
 
 -- |
 --
@@ -700,3 +714,5 @@ lock ghci = takeMVar (lockGHCiProcess ghci) >> return ()
 --
 unlock ::  GHCiProcess -> IO ()
 unlock ghci = putMVar (lockGHCiProcess ghci) Lock
+
+

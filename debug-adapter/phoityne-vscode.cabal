@@ -1,5 +1,5 @@
 name:                  phoityne-vscode
-version:               0.0.18.0
+version:               0.0.19.0
 synopsis:              ghci debug viewer on Visual Studio Code
 description:           Please see README.md
 license:               BSD3
@@ -111,6 +111,7 @@ executable phoityne-vscode
                      , Phoityne.VSCode.TH.ThreadsResponseBodyJSON
                      , Phoityne.VSCode.TH.ThreadsResponseJSON
                      , Phoityne.VSCode.TH.VariableJSON
+                     , Phoityne.VSCode.TH.VariablePresentationHintJSON
                      , Phoityne.VSCode.TH.VariablesArgumentsJSON
                      , Phoityne.VSCode.TH.VariablesBodyJSON
                      , Phoityne.VSCode.TH.VariablesRequestJSON

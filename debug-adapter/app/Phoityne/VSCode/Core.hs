@@ -108,6 +108,7 @@ import qualified Phoityne.VSCode.TH.TerminatedEventBodyJSON as J
 import qualified Phoityne.VSCode.TH.ThreadsRequestJSON as J
 import qualified Phoityne.VSCode.TH.ThreadsResponseJSON as J
 import qualified Phoityne.VSCode.TH.VariableJSON as J
+import qualified Phoityne.VSCode.TH.VariablesArgumentsJSON as J
 import qualified Phoityne.VSCode.TH.VariablesBodyJSON as J
 import qualified Phoityne.VSCode.TH.VariablesRequestJSON as J
 import qualified Phoityne.VSCode.TH.VariablesResponseJSON as J
@@ -132,7 +133,8 @@ data DebugContextData =
   , ghciProcessDebugContextData             :: Maybe G.GHCiProcess
   , responseHandlerDebugContextData         :: BSL.ByteString -> IO ()
   , stopOnEntryDebugContextData             :: Bool
-  , hackagePackageVersionDebugContextData   :: String 
+  , hackagePackageVersionDebugContextData   :: String
+  , haskellDapEnabledDebugContextData       :: Bool
   }
 
 
@@ -159,6 +161,13 @@ type BreakPointDataKey = G.SourcePosition
 --  
 -- 
 type BreakPointDatas = M.Map BreakPointDataKey BreakPointData
+
+
+-- |
+--
+_HASKELL_DAP_EXE :: String
+_HASKELL_DAP_EXE = "haskell-dap"
+
 
 -- |
 --  
@@ -202,41 +211,41 @@ _TASKS_JSON_FILE_CONTENTS = str2lbs $ U.join "\n" $
     "{"
   , "  // atuomatically created by phoityne-vscode"
   , "  "
-  , "  \"version\": \"0.1.0\","
-  , "  \"isShellCommand\": true,"
-  , "  \"showOutput\": \"always\","
-  , "  \"suppressTaskName\": true,"
-  , "  \"windows\": {"
-  , "    \"command\": \"cmd\","
-  , "    \"args\": [\"/c\"]"
-  , "  },"
-  , "  \"linux\": {"
-  , "    \"command\": \"sh\","
-  , "    \"args\": [\"-c\"]"
-  , "  },"
-  , "  \"osx\": {"
-  , "    \"command\": \"sh\","
-  , "    \"args\": [\"-c\"]"
+  , "  \"version\": \"2.0.0\","
+  , "  \"presentation\": {"
+  , "    \"reveal\": \"always\","
+  , "    \"panel\": \"new\""
   , "  },"
   , "  \"tasks\": ["
   , "    {"
-  , "       \"taskName\": \"stack build\","
-  , "       \"args\": [ \"echo START_STACK_BUILD && cd ${workspaceRoot} && stack build && echo END_STACK_BUILD \" ]"
+  , "      \"group\": {"
+  , "        \"kind\": \"build\","
+  , "        \"isDefault\": true"
+  , "      },"
+  , "      \"label\": \"stack build\","
+  , "       \"type\": \"shell\","
+  , "       \"command\": \"echo START_STACK_BUILD && cd ${workspaceRoot} && stack build && echo END_STACK_BUILD \""
   , "    },"
   , "    { "
-  , "       \"isBuildCommand\": true,"
-  , "       \"taskName\": \"stack clean & build\","
-  , "       \"args\": [ \"echo START_STACK_CLEAN_AND_BUILD && cd ${workspaceRoot} && stack clean && stack build && echo END_STACK_CLEAN_AND_BUILD \" ]"
+  , "      \"group\": \"build\","
+  , "      \"type\": \"shell\","
+  , "      \"label\": \"stack clean & build\","
+  , "      \"command\": \"echo START_STACK_CLEAN_AND_BUILD && cd ${workspaceRoot} && stack clean && stack build && echo END_STACK_CLEAN_AND_BUILD \""
   , "    },"
   , "    { "
-  , "       \"isTestCommand\": true,"
-  , "       \"taskName\": \"stack test\","
-  , "       \"args\": [ \"echo START_STACK_TEST && cd ${workspaceRoot} && stack test && echo END_STACK_TEST \" ]"
+  , "      \"group\": {"
+  , "        \"kind\": \"test\","
+  , "        \"isDefault\": true"
+  , "      },"
+  , "      \"type\": \"shell\","
+  , "      \"label\": \"stack test\","
+  , "      \"command\": \"echo START_STACK_TEST && cd ${workspaceRoot} && stack test && echo END_STACK_TEST \""
   , "    },"
   , "    { "
-  , "       \"isBackground\": true,"
-  , "       \"taskName\": \"stack watch\","
-  , "       \"args\": [ \"echo START_STACK_WATCH && cd ${workspaceRoot} && stack build --test --no-run-tests --file-watch && echo END_STACK_WATCH \" ]"
+  , "      \"isBackground\": true,"
+  , "      \"type\": \"shell\","
+  , "      \"label\": \"stack watch\","
+  , "      \"command\": \"echo START_STACK_WATCH && cd ${workspaceRoot} && stack build --test --no-run-tests --file-watch && echo END_STACK_WATCH \""
   , "    }"
   , "  ]"
   , "}"
@@ -272,7 +281,8 @@ _NEW_VERSION_MSG :: [String]
 _NEW_VERSION_MSG = [
     ""
   , "  New hackage module has been released."
-  , "  `stack update` and install new phoityen-vscode."
+  , "  `stack update` and `stack install phoityen-vscode`."
+  , " "
   , " "
   ]
 
@@ -308,6 +318,7 @@ defaultDebugContextData = DebugContextData {
   , responseHandlerDebugContextData         = BSL.putStr
   , stopOnEntryDebugContextData             = False
   , hackagePackageVersionDebugContextData   = ""
+  , haskellDapEnabledDebugContextData       = False
   }
 
 
@@ -485,7 +496,9 @@ handleRequest mvarDat contLenStr jsonStr = do
       Left  err -> sendParseErrorAndTerminate err "scopes"
 
     handle "variables" = case J.eitherDecode jsonStr :: Either String J.VariablesRequest of
-      Right req -> variablesRequestHandler mvarDat req
+      Right req ->  haskellDapEnabledDebugContextData <$> (readMVar mvarDat) >>= \case
+        True  -> variablesRequestHandlerDAP mvarDat req
+        False -> variablesRequestHandler mvarDat req
       Left  err -> sendParseErrorAndTerminate err "variables"
 
     handle "threads" = case J.eitherDecode jsonStr :: Either String J.ThreadsRequest of
@@ -584,6 +597,7 @@ launchRequestHandler mvarCtx req@(J.LaunchRequest _ _ _ args) = flip E.catches h
     , startupFuncDebugContextData = maybe "" (\s->if null (U.strip s) then "" else  (U.strip s)) (J.startupFuncLaunchRequestArguments args)
     , startupArgsDebugContextData = maybe "" (id) (J.startupArgsLaunchRequestArguments args)
     , stopOnEntryDebugContextData = J.stopOnEntryLaunchRequestArguments args
+    , haskellDapEnabledDebugContextData = L.isInfixOf _HASKELL_DAP_EXE (J.ghciCmdLaunchRequestArguments args)
     }
 
   let logLevelStr = J.logLevelLaunchRequestArguments args
@@ -765,7 +779,24 @@ disconnectRequestHandler mvarCtx req = do
 -- |
 --
 setBreakpointsRequestHandler :: MVar DebugContextData -> J.SetBreakpointsRequest -> IO ()
-setBreakpointsRequestHandler mvarCtx req = flip E.catches handlers $ do
+setBreakpointsRequestHandler mvarCtx req = do
+  ctx <- readMVar mvarCtx
+  let cwd     = workspaceDebugContextData ctx
+      args    = J.argumentsSetBreakpointsRequest req
+      source  = J.sourceSetBreakpointsRequestArguments args
+      path    = J.pathSource source
+
+  if U.startswith cwd path then setBreakpointsInternal mvarCtx req 
+    else do
+      let msg = L.intercalate " " ["setBreakpoints request ignored."]
+      resSeq <- getIncreasedResponseSequence mvarCtx
+      sendResponse mvarCtx $ J.encode $ J.errorSetBreakpointsResponse resSeq req msg 
+
+
+-- |
+--
+setBreakpointsInternal :: MVar DebugContextData -> J.SetBreakpointsRequest -> IO ()
+setBreakpointsInternal mvarCtx req = flip E.catches handlers $ do
   logRequest $ show req
 
   ctx <- readMVar mvarCtx
@@ -1237,10 +1268,100 @@ variablesRequestHandler mvarCtx req = flip E.catches handlers $ do
 
       Right dats -> return $ map convBind2Vals dats
     
-    convBind2Vals (G.BindingData varName modName val) = J.Variable varName modName val (Just varName) 0
+    convBind2Vals (G.BindingData varName modName val) =
+      J.Variable {
+          J.nameVariable = varName
+        , J.typeVariable = modName
+        , J.valueVariable = val
+        , J.evaluateNameVariable = (Just varName)
+        , J.variablesReferenceVariable = 0
+        , J.presentationHintVariable = Nothing
+        , J.namedVariablesVariable = Nothing
+        , J.indexedVariablesVariable = Nothing
+      }
 
     outHdl = debugM _LOG_NAME
 
+-- |
+--
+--
+variablesRequestHandlerDAP :: MVar DebugContextData -> J.VariablesRequest -> IO ()
+variablesRequestHandlerDAP mvarCtx req = flip E.catches handlers $ do
+  logRequest $ show req
+
+  vals <- currentBindings
+
+  resSeq <- getIncreasedResponseSequence mvarCtx
+  let res = J.defaultVariablesResponse resSeq req
+      resStr = J.encode $ res{J.bodyVariablesResponse = J.VariablesBody vals}
+  sendResponse mvarCtx resStr
+
+  where
+    handlers = [ E.Handler someExcept ]
+    someExcept (e :: E.SomeException) = do
+      let msg = L.intercalate " " ["variables request error.", show req, show e]
+      resSeq <- getIncreasedResponseSequence mvarCtx
+      sendResponse mvarCtx $ J.encode $ J.errorVariablesResponse resSeq req msg 
+      sendErrorEvent mvarCtx msg
+
+    currentBindings = ghciProcessDebugContextData <$> (readMVar mvarCtx) >>= withProcess
+
+    withProcess Nothing = do
+      sendErrorEvent mvarCtx "[variablesRequestHandler] ghci not started."
+      return []
+
+    withProcess (Just ghciProc) = do
+      let args = J.argumentsVariablesRequest req
+          idx  = J.variablesReferenceVariablesArguments args
+      
+      G.bindingsDAP ghciProc outHdl idx >>= \case
+        Left err   -> do
+          sendErrorEvent mvarCtx $ show err
+          return []
+
+        Right dats -> case readMay dats of
+          Just vals -> do
+            debugM _LOG_NAME $ "[variablesRequestHandlerDAP] read string: " ++ dats
+            return vals
+          Nothing   -> do
+            sendErrorEvent mvarCtx $ "[variablesRequestHandler] can not read valriables. " ++ dats
+            return []
+
+    outHdl = debugM _LOG_NAME
+
+
+-- |
+--
+{-
+variablesRequestHandlerDAP :: MVar DebugContextData -> BSL.ByteString -> IO ()
+variablesRequestHandlerDAP mvarCtx jsonStr = flip E.catches handlers $ do
+  logRequest $ show jsonStr
+
+  resStr <- currentBindings
+  -- {"seq":36,"type":"response","request_seq":11,"success":true,"command":"variables","message":"","body":{"variables":[{"name":"foo","type":"Foo","value":"_","evaluateName":"foo","variablesReference":0},{"name":"_result","type":"IO ()","value":"_","evaluateName":"_result","variablesReference":0}]}}
+  sendResponse mvarCtx resStr
+
+  where
+    handlers = [ E.Handler someExcept ]
+    someExcept (e :: E.SomeException) = do
+      let msg = L.intercalate " " ["[variablesRequestHandlerDAP] variables request error.", show e]
+      sendErrorEvent mvarCtx msg
+
+    currentBindings = ghciProcessDebugContextData <$> (readMVar mvarCtx) >>= withProcess
+
+    withProcess Nothing = do
+      sendErrorEvent mvarCtx "[variablesRequestHandlerDAP] ghci not started."
+      return $ "[variablesRequestHandlerDAP] CRITICAL."
+
+    withProcess (Just ghciProc) = G.dap ghciProc outHdl (lbs2str jsonStr) >>= \case
+      Left err   -> do
+        sendErrorEvent mvarCtx $ show err
+        return $ "[variablesRequestHandlerDAP] CRITICAL."
+
+      Right dats -> return (str2lbs dats)
+
+    outHdl = debugM _LOG_NAME
+-}
 
 -- |
 --
@@ -1288,7 +1409,7 @@ evaluateRequestHandler mvarCtx req = flip E.catches handlers $ do
         evaluateResponse err ""
 
       Right typeStr -> case isFunction typeStr of 
-        True  -> evaluateResponse "" (getOnlyType typeStr)
+        True  -> evaluateResponse ("function :: " ++  (getOnlyType typeStr)) (getOnlyType typeStr)
         False -> G.force ghciProc outHdl exp >>= \case
           Right valStr -> evaluateResponse (getOnlyValue valStr) (getOnlyType typeStr)
           Left _ -> evaluateResponse "" (getOnlyType typeStr)
