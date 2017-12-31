@@ -2,20 +2,18 @@
 
 # Phoityne VSCode
 
-Phoityne is a ghci debug viewer for Visual Studio Code.
+Phoityne is a Haskell GHCi debug adapter for Visual Studio Code.
 
 
 ## Information
 
-* [2017/12/16] phoityne-vscode released.  
-  * Marketplace [phoityne-vscode-0.0.17](https://marketplace.visualstudio.com/items?itemName=phoityne.phoityne-vscode)
-  * hackage [phoityne-vscode-0.0.19.0](https://hackage.haskell.org/package/phoityne-vscode)  
+* [2018/01/01] phoityne-vscode released.  
+  * Marketplace [phoityne-vscode-0.0.18](https://marketplace.visualstudio.com/items?itemName=phoityne.phoityne-vscode)
+  * hackage [phoityne-vscode-0.0.20.0](https://hackage.haskell.org/package/phoityne-vscode)  
   __Need update from hackage !!.__
 * Release Summary
-  * [ADD] checking hackage package version and inform on console if using lower version.
-  * [MODIFY] Supporting Multi-root Workspaces. version up tasks.json.
-  * [MODIFY] Supporting Multi-root Workspaces. setBreakpointsRequest.  
-    __Need recreate .vscde/launch.json and tasks.json in the project folder !!.__
+  * [FIX] clearing frame id while handling stack trace request.
+  * [MODIFY] change stack trace size from 20 to 50(max).
 
 ![10_quick_start.gif](https://raw.githubusercontent.com/phoityne/phoityne-vscode/master/docs/10_quick_start.gif)  
 (This sample project is available from [here](https://github.com/phoityne/stack-project-template).)
@@ -85,6 +83,14 @@ Supports these operators.
 
 ![06_repl.gif](https://raw.githubusercontent.com/phoityne/phoityne-vscode/master/docs/06_repl.gif)
 
+### and more
+
+Better inspection. This is an experimental enhancement.  
+There are limitations and additional installation.  
+[Here are the details](https://github.com/phoityne/haskell-dap). 
+
+![01_inspect_variables.gif](https://raw.githubusercontent.com/phoityne/haskell-dap/master/docs/01_inspect_variables.gif)  
+
 ## Capabilites
 
 * supportsConfigurationDoneRequest : **yes**
@@ -146,7 +152,7 @@ linux)
 1. run VSCode and open stack project __Folder__ from file menu. 
 2. open Extensions from side menu of VSCode.
 3. search "haskell" 
-4. select "[__Haskell GHCi debug viewer Phoityne__](https://marketplace.visualstudio.com/items?itemName=phoityne.phoityne-vscode)"
+4. select "[__Haskell GHCi debug adapter Phoityne__](https://marketplace.visualstudio.com/items?itemName=phoityne.phoityne-vscode)"
 
   
 
