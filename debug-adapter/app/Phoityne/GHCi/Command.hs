@@ -24,12 +24,15 @@ module Phoityne.GHCi.Command (
   , step
   , stepLocal
   , history
+  , historyDAP
   , back
   , forward
   , bindings
   , bindingsDAP
   , force
+  , forceDAP
   , info
+  , scopesDAP
   , showType
   , showKind
   , execBool
@@ -395,12 +398,27 @@ mayException msg
 
 -- |
 --
-history :: GHCiProcess -> OutputHandler -> IO (Either ErrorData [StackFrame])
-history ghci outHdl = do
-  let cmd = ":history"
+history :: GHCiProcess -> OutputHandler -> Int -> IO (Either ErrorData [StackFrame])
+history ghci outHdl size = do
+  let cmd = ":history " ++ show size
   exec ghci outHdl cmd >>= \case
     Left err  -> return $ Left err
     Right msg -> return $ extractStackFrame msg
+
+
+-- |
+--
+historyDAP :: GHCiProcess -> OutputHandler -> Int -> IO (Either ErrorData String)
+historyDAP ghci outHdl _ = do
+  let cmd = ":dap-history"
+      dapHead = "<<DAP>>"
+  exec ghci outHdl cmd >>= \case
+    Left err  -> return $ Left err
+    Right msg -> do
+      let msgs = filter (L.isPrefixOf dapHead) $ lines msg
+      if 1 == length msgs then return $ Right $ drop (length dapHead) $ head msgs
+        else return $ Left $ "[dap] error. header " ++ dapHead ++ "not found. " ++ msg 
+
 
 -- |
 --
@@ -445,6 +463,18 @@ bindingsDAP ghci outHdl idx = do
       if 1 == length msgs then return $ Right $ drop (length dapHead) $ head msgs
         else return $ Left $ "[dap] error. header " ++ dapHead ++ "not found. " ++ msg 
 
+-- |
+--
+scopesDAP :: GHCiProcess -> OutputHandler -> Int -> IO (Either ErrorData String)
+scopesDAP ghci outHdl idx = do
+  let cmd = ":dap-scopes " ++ show idx
+      dapHead = "<<DAP>>"
+  exec ghci outHdl cmd >>= \case
+    Left err  -> return $ Left err
+    Right msg -> do
+      let msgs = filter (L.isPrefixOf dapHead) $ lines msg
+      if 1 == length msgs then return $ Right $ drop (length dapHead) $ head msgs
+        else return $ Left $ "[dap] error. header " ++ dapHead ++ "not found. " ++ msg 
 
 -- |
 --
@@ -454,6 +484,19 @@ force ghci outHdl target = do
   exec ghci outHdl cmd >>= \case
     Left err  -> return $ Left err
     Right msg -> return $ extractErrorResult (normalizeConsoleOut msg) 
+
+-- |
+--
+forceDAP :: GHCiProcess -> OutputHandler -> String -> IO (Either ErrorData String)
+forceDAP ghci outHdl target = do
+  let cmd = ":dap-force " ++ target
+      dapHead = "<<DAP>>"
+  exec ghci outHdl cmd >>= \case
+    Left err  -> return $ Left err
+    Right msg -> do
+      let msgs = filter (L.isPrefixOf dapHead) $ lines msg
+      if 1 == length msgs then return $ Right $ drop (length dapHead) $ head msgs
+        else return $ Left $ "[dap] error. header " ++ dapHead ++ "not found. " ++ msg 
 
 -- |
 --

@@ -20,5 +20,5 @@ data ScopesBody =
 $(deriveJSON defaultOptions { fieldLabelModifier = rdrop (length "ScopesBody") } ''ScopesBody)
 
 defaultScopesBody :: ScopesBody
-defaultScopesBody = ScopesBody [Scope "GHCi scope" 1 False]
+defaultScopesBody = ScopesBody [Scope "GHCi scope" 1 Nothing Nothing False]
 

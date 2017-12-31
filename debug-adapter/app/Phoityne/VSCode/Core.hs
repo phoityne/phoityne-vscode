@@ -75,6 +75,7 @@ import qualified Phoityne.VSCode.TH.PauseRequestJSON as J
 import qualified Phoityne.VSCode.TH.PauseResponseJSON as J
 import qualified Phoityne.VSCode.TH.RequestJSON as J
 import qualified Phoityne.VSCode.TH.ScopesArgumentsJSON as J
+import qualified Phoityne.VSCode.TH.ScopesBodyJSON as J
 import qualified Phoityne.VSCode.TH.ScopesRequestJSON as J
 import qualified Phoityne.VSCode.TH.ScopesResponseJSON as J
 import qualified Phoityne.VSCode.TH.SetBreakpointsRequestArgumentsJSON as J
@@ -167,6 +168,11 @@ type BreakPointDatas = M.Map BreakPointDataKey BreakPointData
 --
 _HASKELL_DAP_EXE :: String
 _HASKELL_DAP_EXE = "haskell-dap"
+
+-- |
+--
+_GHCi_HISTORY_SIZE :: Int
+_GHCi_HISTORY_SIZE  = 50
 
 
 -- |
@@ -492,7 +498,9 @@ handleRequest mvarDat contLenStr jsonStr = do
       Left  err -> sendParseErrorAndTerminate err "stackTrace"
 
     handle "scopes" = case J.eitherDecode jsonStr :: Either String J.ScopesRequest of
-      Right req -> scopesRequestHandler mvarDat req
+      Right req -> haskellDapEnabledDebugContextData <$> (readMVar mvarDat) >>= \case
+        True  -> scopesRequestHandlerDAP mvarDat req
+        False -> scopesRequestHandler mvarDat req
       Left  err -> sendParseErrorAndTerminate err "scopes"
 
     handle "variables" = case J.eitherDecode jsonStr :: Either String J.VariablesRequest of
@@ -1181,15 +1189,25 @@ stackTraceRequestHandler mvarCtx req = flip E.catches handlers $ do
       sendErrorEvent mvarCtx "[stackTraceRequestHandler] ghci not started."
       defaultFrame pos
 
-    withProcess pos (Just ghciProc) = G.history ghciProc outHdl >>= \case
-      Left err   -> do
-        sendErrorEvent mvarCtx $ show err
-        defaultFrame pos
+    withProcess pos (Just ghciProc) = do
+      
+      isDAP <- haskellDapEnabledDebugContextData <$> (readMVar mvarCtx)
+      when isDAP $ do
+        _ <- G.historyDAP ghciProc outHdlDAP _GHCi_HISTORY_SIZE
+        return ()
 
-      Right dats -> do
-        cwd <- workspaceDebugContextData <$> readMVar mvarCtx
-        cfs <- defaultFrame pos
-        foldM (convTrace2Frame cwd) cfs dats
+      ctx <- takeMVar mvarCtx
+      putMVar mvarCtx ctx{currentFrameIdDebugContextData = 0}
+
+      G.history ghciProc outHdl _GHCi_HISTORY_SIZE >>= \case
+        Left err   -> do
+          sendErrorEvent mvarCtx $ show err
+          defaultFrame pos
+
+        Right dats -> do
+          cwd <- workspaceDebugContextData <$> readMVar mvarCtx
+          cfs <- defaultFrame pos
+          foldM (convTrace2Frame cwd) cfs dats
 
     convTrace2Frame cwd xs (G.StackFrame traceId funcName (G.SourcePosition file sl sc el ec)) = do
       ctx <- readMVar mvarCtx
@@ -1208,6 +1226,7 @@ stackTraceRequestHandler mvarCtx req = flip E.catches handlers $ do
 
     outHdl = debugM _LOG_NAME
 
+    outHdlDAP = sendStdoutEvent mvarCtx
 
 -- |
 --
@@ -1232,6 +1251,54 @@ scopesRequestHandler mvarCtx req = flip E.catches handlers $ do
       resSeq <- getIncreasedResponseSequence mvarCtx
       sendResponse mvarCtx $ J.encode $ J.errorScopesResponse resSeq req msg 
       sendErrorEvent mvarCtx msg
+
+
+-- |
+--
+--
+scopesRequestHandlerDAP :: MVar DebugContextData -> J.ScopesRequest -> IO ()
+scopesRequestHandlerDAP mvarCtx req = flip E.catches handlers $ do
+  logRequest $ show req
+
+  body <- ghciProcessDebugContextData <$> (readMVar mvarCtx) >>= withProcess
+
+  resSeq <- getIncreasedResponseSequence mvarCtx
+  let res =  J.defaultScopesResponse resSeq req
+      resStr = J.encode res{J.bodyScopesResponse = body}
+  sendResponse mvarCtx resStr
+
+  where
+    handlers = [ E.Handler someExcept ]
+    someExcept (e :: E.SomeException) = do
+      let msg = L.intercalate " " ["scopes request error.", show req, show e]
+      resSeq <- getIncreasedResponseSequence mvarCtx
+      sendResponse mvarCtx $ J.encode $ J.errorScopesResponse resSeq req msg 
+      sendErrorEvent mvarCtx msg
+
+    withProcess Nothing = do
+      sendErrorEvent mvarCtx "[scopesRequestHandlerDAP] ghci not started."
+      return J.ScopesBody {J.scopesScopesBody = []}
+
+    withProcess (Just ghciProc) = do
+      let args    = J.argumentsScopesRequest req
+          traceId = J.frameIdScopesArguments args
+    
+      G.scopesDAP ghciProc outHdl traceId >>= \case
+        Left err   -> do
+          sendErrorEvent mvarCtx $ show err
+          return J.ScopesBody {J.scopesScopesBody = []}
+
+        Right dats -> case readMay dats of
+          Just body -> do
+            debugM _LOG_NAME $ "[scopesRequestHandlerDAP] read string: " ++ dats
+            return body
+          Nothing   -> do
+            sendErrorEvent mvarCtx $ "[scopesRequestHandlerDAP] can not read valriables. " ++ dats
+            return J.ScopesBody {J.scopesScopesBody = []}
+
+    -- outHdl = debugM _LOG_NAME
+
+    outHdl = sendStdoutEvent mvarCtx
 
 -- |
 --
@@ -1289,11 +1356,11 @@ variablesRequestHandlerDAP :: MVar DebugContextData -> J.VariablesRequest -> IO 
 variablesRequestHandlerDAP mvarCtx req = flip E.catches handlers $ do
   logRequest $ show req
 
-  vals <- currentBindings
+  body <- ghciProcessDebugContextData <$> (readMVar mvarCtx) >>= withProcess
 
   resSeq <- getIncreasedResponseSequence mvarCtx
   let res = J.defaultVariablesResponse resSeq req
-      resStr = J.encode $ res{J.bodyVariablesResponse = J.VariablesBody vals}
+      resStr = J.encode $ res{J.bodyVariablesResponse = body}
   sendResponse mvarCtx resStr
 
   where
@@ -1304,11 +1371,9 @@ variablesRequestHandlerDAP mvarCtx req = flip E.catches handlers $ do
       sendResponse mvarCtx $ J.encode $ J.errorVariablesResponse resSeq req msg 
       sendErrorEvent mvarCtx msg
 
-    currentBindings = ghciProcessDebugContextData <$> (readMVar mvarCtx) >>= withProcess
-
     withProcess Nothing = do
       sendErrorEvent mvarCtx "[variablesRequestHandler] ghci not started."
-      return []
+      return J.defaultVariablesBody
 
     withProcess (Just ghciProc) = do
       let args = J.argumentsVariablesRequest req
@@ -1317,7 +1382,7 @@ variablesRequestHandlerDAP mvarCtx req = flip E.catches handlers $ do
       G.bindingsDAP ghciProc outHdl idx >>= \case
         Left err   -> do
           sendErrorEvent mvarCtx $ show err
-          return []
+          return J.defaultVariablesBody
 
         Right dats -> case readMay dats of
           Just vals -> do
@@ -1325,43 +1390,11 @@ variablesRequestHandlerDAP mvarCtx req = flip E.catches handlers $ do
             return vals
           Nothing   -> do
             sendErrorEvent mvarCtx $ "[variablesRequestHandler] can not read valriables. " ++ dats
-            return []
+            return J.defaultVariablesBody
 
-    outHdl = debugM _LOG_NAME
+    -- outHdl = debugM _LOG_NAME
+    outHdl = sendStdoutEvent mvarCtx
 
-
--- |
---
-{-
-variablesRequestHandlerDAP :: MVar DebugContextData -> BSL.ByteString -> IO ()
-variablesRequestHandlerDAP mvarCtx jsonStr = flip E.catches handlers $ do
-  logRequest $ show jsonStr
-
-  resStr <- currentBindings
-  -- {"seq":36,"type":"response","request_seq":11,"success":true,"command":"variables","message":"","body":{"variables":[{"name":"foo","type":"Foo","value":"_","evaluateName":"foo","variablesReference":0},{"name":"_result","type":"IO ()","value":"_","evaluateName":"_result","variablesReference":0}]}}
-  sendResponse mvarCtx resStr
-
-  where
-    handlers = [ E.Handler someExcept ]
-    someExcept (e :: E.SomeException) = do
-      let msg = L.intercalate " " ["[variablesRequestHandlerDAP] variables request error.", show e]
-      sendErrorEvent mvarCtx msg
-
-    currentBindings = ghciProcessDebugContextData <$> (readMVar mvarCtx) >>= withProcess
-
-    withProcess Nothing = do
-      sendErrorEvent mvarCtx "[variablesRequestHandlerDAP] ghci not started."
-      return $ "[variablesRequestHandlerDAP] CRITICAL."
-
-    withProcess (Just ghciProc) = G.dap ghciProc outHdl (lbs2str jsonStr) >>= \case
-      Left err   -> do
-        sendErrorEvent mvarCtx $ show err
-        return $ "[variablesRequestHandlerDAP] CRITICAL."
-
-      Right dats -> return (str2lbs dats)
-
-    outHdl = debugM _LOG_NAME
--}
 
 -- |
 --
@@ -1390,8 +1423,9 @@ evaluateRequestHandler :: MVar DebugContextData -> J.EvaluateRequest -> IO ()
 evaluateRequestHandler mvarCtx req = flip E.catches handlers $ do
   logRequest $ show req
 
+  isDap <- haskellDapEnabledDebugContextData <$> (readMVar mvarCtx)
   let (J.EvaluateArguments exp _ ctx) = J.argumentsEvaluateRequest req
-  ghciProcessDebugContextData <$> (readMVar mvarCtx) >>= withProcess ctx exp
+  ghciProcessDebugContextData <$> (readMVar mvarCtx) >>= withProcess ctx isDap exp
 
   where
     handlers = [ E.Handler someExcept ]
@@ -1401,9 +1435,9 @@ evaluateRequestHandler mvarCtx req = flip E.catches handlers $ do
       sendResponse mvarCtx $ J.encode $ J.errorEvaluateResponse resSeq req msg 
       sendErrorEvent mvarCtx msg
 
-    withProcess _ _ Nothing = sendErrorEvent mvarCtx "[evaluateRequestHandler] ghci not started."
+    withProcess _ _ _ Nothing = sendErrorEvent mvarCtx "[evaluateRequestHandler] ghci not started."
 
-    withProcess "watch" exp (Just ghciProc) = G.showType ghciProc outHdl exp >>= \case
+    withProcess "watch" False exp (Just ghciProc) = G.showType ghciProc outHdl exp >>= \case
       Left err -> do
         errorM _LOG_NAME $ show err
         evaluateResponse err ""
@@ -1414,13 +1448,33 @@ evaluateRequestHandler mvarCtx req = flip E.catches handlers $ do
           Right valStr -> evaluateResponse (getOnlyValue valStr) (getOnlyType typeStr)
           Left _ -> evaluateResponse "" (getOnlyType typeStr)
 
-    withProcess "hover" exp (Just ghciProc) = G.showType ghciProc outHdl exp >>= \case
+          
+    withProcess "watch" True exp (Just ghciProc) = G.forceDAP ghciProc outHdlDAP exp >>= \case
+      Right dats ->  case readMay dats of
+        Just body -> do
+          debugM _LOG_NAME $ "[evaluateRequestHandler] read string: " ++ dats
+          resSeq <- getIncreasedResponseSequence mvarCtx
+          let res    = J.defaultEvaluateResponse resSeq req
+              resStr = J.encode res{J.bodyEvaluateResponse = body}
+          sendResponse mvarCtx resStr
+        Nothing -> do
+          sendErrorEvent mvarCtx $ "[evaluateRequestHandler] can not read valriables. " ++ dats
+          resSeq <- getIncreasedResponseSequence mvarCtx
+          let res = J.errorEvaluateResponse resSeq req $ "eval faild."
+          sendResponse mvarCtx (J.encode res)
+
+      Left e -> do
+        resSeq <- getIncreasedResponseSequence mvarCtx
+        let res = J.errorEvaluateResponse resSeq req (show e)
+        sendResponse mvarCtx (J.encode res)
+
+    withProcess "hover" _ exp (Just ghciProc) = G.showType ghciProc outHdl exp >>= \case
       Left err -> do
         errorM _LOG_NAME $ show err
         evaluateResponse err ""
       Right typeStr -> evaluateResponse typeStr (getOnlyType typeStr)
 
-    withProcess _ exp (Just ghciProc) 
+    withProcess _ _ exp (Just ghciProc) 
       | null (U.strip exp) = do
          evaluateResponse "" ""
          sendStdoutEvent mvarCtx (G.promptGHCiProcess ghciProc)
@@ -1472,6 +1526,7 @@ evaluateRequestHandler mvarCtx req = flip E.catches handlers $ do
     isPermitCmd c = 0 == (length ( filter (flip U.startswith c) _NOT_PERMIT_REPL_COMMANDS))
 
     outHdl = debugM _LOG_NAME
+    outHdlDAP = sendStdoutEvent mvarCtx
 
     isFunction str = case parse isFunctionParser "isFunction" str of
       Right _ -> True
@@ -1481,7 +1536,7 @@ evaluateRequestHandler mvarCtx req = flip E.catches handlers $ do
 
     evaluateResponse msg typeStr = do
       resSeq <- getIncreasedResponseSequence mvarCtx
-      let body   = J.EvaluateBody msg typeStr 0
+      let body   = J.defaultEvaluateBody{J.resultEvaluateBody = msg, J.typeEvaluateBody = typeStr}
           res    = J.defaultEvaluateResponse resSeq req
           resStr = J.encode res{J.bodyEvaluateResponse = body}
       sendResponse mvarCtx resStr
@@ -1799,7 +1854,13 @@ breakByException mvarCtx = ghciProcessDebugContextData <$> (readMVar mvarCtx) >>
       sendErrorEvent mvarCtx $ "[breakByException] can't get exception message. " ++ err
       sendTerminateEvent mvarCtx
 
-    withExceptionMsg ghciProc (Right msg) = G.history ghciProc outHdl >>= \case
+    withExceptionMsg ghciProc (Right msg) = do
+      isDAP <- haskellDapEnabledDebugContextData <$> (readMVar mvarCtx)
+      when isDAP $ do
+        _ <- G.historyDAP ghciProc outHdlDAP _GHCi_HISTORY_SIZE
+        return ()
+        
+      G.history ghciProc outHdl _GHCi_HISTORY_SIZE >>= \case
         Left err   -> do
           sendErrorEvent mvarCtx $ show err
           sendTerminateEvent mvarCtx
@@ -1820,7 +1881,7 @@ breakByException mvarCtx = ghciProcessDebugContextData <$> (readMVar mvarCtx) >>
     -- |
     --
     outHdl = debugM _LOG_NAME
-    -- outHdl = sendStdoutEvent mvarCtx
+    outHdlDAP = sendStdoutEvent mvarCtx
 
 
 -- |
