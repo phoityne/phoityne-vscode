@@ -9,6 +9,6 @@ if [ "X" = "X$PHOITYNE_PATH" ]; then
   exit 1
 fi
 
-phoityne-vscode --hackage-version=0.0.19.0
+phoityne-vscode --hackage-version=0.0.20.0
 
 
