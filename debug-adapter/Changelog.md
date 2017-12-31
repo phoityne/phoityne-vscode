@@ -1,4 +1,9 @@
 
+20180101 phoityne-vscode-0.0.20.0
+  * [FIX] clearing frame id while handling stack trace request.
+  * [MODIFY] change stack trace size from 20 to 50(max).
+
+
 20171216 phoityne-vscode-0.0.19.0
   * [ADD] checking hackage package version and inform on console if using lower version.
   * [MODIFY] Supporting Multi-root Workspaces. version up tasks.json.
