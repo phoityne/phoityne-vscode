@@ -27,7 +27,7 @@ import qualified System.Process as S
 import qualified System.IO as S
 import qualified System.Exit as S
 import qualified System.Environment as S
-import qualified Control.Exception as E
+import qualified Control.Exception.Safe as E
 import qualified Data.String.Utils as U
 import qualified Data.Map as M
 import qualified Data.Version as V

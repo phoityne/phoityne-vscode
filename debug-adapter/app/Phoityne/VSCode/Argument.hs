@@ -2,31 +2,32 @@
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE DeriveDataTypeable  #-}
 {-# OPTIONS_GHC -fno-cse         #-}
+{-# LANGUAGE MultiWayIf          #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Phoityne.VSCode.Argument (
   HelpExitException(..)
 , ArgData(..)
-, config
+, getArgData
 ) where
 
 import Paths_phoityne_vscode (version)
+import Phoityne.VSCode.Type
 import System.Console.CmdArgs
-import qualified Control.Exception as E
+import qualified Control.Exception.Safe as E
+import qualified System.Console.CmdArgs as CMD
 import Data.Version
 
 
 -- |
---
-data HelpExitException = HelpExitException
-                       deriving (Show, Typeable)
-
-instance E.Exception HelpExitException
-
--- |
---
-data ArgData = ModeA {
-                hackageVersion :: String
-              } deriving (Data, Typeable, Show, Read, Eq)
+-- 
+getArgData :: IO ArgData
+getArgData = E.catches (CMD.cmdArgs config) handlers
+  where
+    handlers = [E.Handler someExcept]
+    someExcept (e :: E.SomeException) = if
+      | "ExitSuccess" == show e -> E.throw HelpExitException
+      | otherwise -> E.throwIO e
 
 
 -- |
@@ -37,8 +38,8 @@ config = modes [confA]
          &= program "phoityne-vscode"
          
   where
-    confA = ModeA {
-            hackageVersion = showVersion version
+    confA = ArgData {
+            _hackageVersionArgData = showVersion version
             &= name "hackage-version"
             &= typ "VERSION"
             &= explicit
@@ -53,8 +54,7 @@ config = modes [confA]
            
     mdAMsg = [
              ""
-           , "Phoityne is a ghci debug viewer for Visual Studio Code. "
+           , "Phoityne is a ghci debug adapter for Visual Studio Code. "
            , ""
            ]
-
 

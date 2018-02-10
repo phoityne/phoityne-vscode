@@ -3,14 +3,13 @@
 
 module Main where
 
-import qualified Phoityne.VSCode.Main as M
+import Phoityne.VSCode.Control
 import System.Exit
 
 -- |
 --
 main :: IO ()
-main = do
-  M.run >>= \case
-    0 -> exitSuccess
-    c -> exitWith . ExitFailure $ c
+main = run >>= \case
+  0 -> exitSuccess
+  c -> exitWith . ExitFailure $ c
 

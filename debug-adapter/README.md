@@ -6,14 +6,12 @@ Phoityne is a Haskell GHCi debug adapter for Visual Studio Code.
 
 
 ## Information
-
-* [2018/01/01] phoityne-vscode released.  
-  * Marketplace [phoityne-vscode-0.0.18](https://marketplace.visualstudio.com/items?itemName=phoityne.phoityne-vscode)
-  * hackage [phoityne-vscode-0.0.20.0](https://hackage.haskell.org/package/phoityne-vscode)  
+* [2018/02/11] phoityne-vscode released.  
+  * Marketplace [phoityne-vscode-0.0.19](https://marketplace.visualstudio.com/items?itemName=phoityne.phoityne-vscode)
+  * hackage [phoityne-vscode-0.0.21.0](https://hackage.haskell.org/package/phoityne-vscode)  
   __Need update from hackage !!.__
 * Release Summary
-  * [FIX] clearing frame id while handling stack trace request.
-  * [MODIFY] change stack trace size from 20 to 50(max).
+  * [MODIFY] [34](https://github.com/phoityne/phoityne-vscode/issues/34) : can not set breakpoint on vscode-1.20.0
 
 ![10_quick_start.gif](https://raw.githubusercontent.com/phoityne/phoityne-vscode/master/docs/10_quick_start.gif)  
 (This sample project is available from [here](https://github.com/phoityne/stack-project-template).)

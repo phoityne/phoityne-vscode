@@ -16,6 +16,16 @@ _INI_LOG_LEVEL = "level"
 _INI_SEC_PHOITYNE :: String
 _INI_SEC_PHOITYNE = "PHOITYNE"
 
+-- |
+--
+_INI_SEC_DEF :: String
+_INI_SEC_DEF = "DEFAULT"
+
+-- |
+--
+_INI_DEF_WORK_DIR :: String
+_INI_DEF_WORK_DIR  = "work_dir"
+
 
 -- |
 --

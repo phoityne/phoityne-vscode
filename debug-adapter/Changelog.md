@@ -1,3 +1,6 @@
+20180211 phoityne-vscode-0.0.21.0
+  * [MODIFY] [34](https://github.com/phoityne/phoityne-vscode/issues/34) : can not set breakpoint on vscode-1.20.0
+
 
 20180101 phoityne-vscode-0.0.20.0
   * [FIX] clearing frame id while handling stack trace request.

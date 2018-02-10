@@ -28,9 +28,10 @@ import System.FilePath
 import System.Directory
 import System.Log.Logger
 import Text.Parsec
-import qualified Control.Exception as E
+import qualified Control.Exception.Safe as E
 import qualified Data.Aeson as J
 import qualified Data.ByteString.Lazy as BSL
+import qualified Data.ByteString as BS
 import qualified Data.String.Utils as U
 import qualified Data.List as L
 import qualified Data.Map as M
@@ -40,10 +41,15 @@ import qualified System.Log.Formatter as L
 import qualified System.Log.Handler as LH
 import qualified System.Log.Handler.Simple as LHS
 import qualified Data.Version as V
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
+import qualified Text.Read as R
+import Data.Word
 
 import Phoityne.VSCode.Constant
 import Phoityne.VSCode.Utility
 import qualified Phoityne.VSCode.TH.BreakpointJSON as J
+-- import qualified Phoityne.VSCode.TH.ColumnDescriptorJSON as J
 import qualified Phoityne.VSCode.TH.CompletionsItemJSON as J
 import qualified Phoityne.VSCode.TH.CompletionsArgumentsJSON as J
 import qualified Phoityne.VSCode.TH.CompletionsResponseBodyJSON as J
@@ -62,11 +68,15 @@ import qualified Phoityne.VSCode.TH.EvaluateResponseJSON as J
 import qualified Phoityne.VSCode.TH.ExceptionBreakpointsFilterJSON as J
 import qualified Phoityne.VSCode.TH.InitializedEventJSON as J
 import qualified Phoityne.VSCode.TH.InitializeRequestJSON as J
-import qualified Phoityne.VSCode.TH.InitializeResponseCapabilitesJSON as J
+import qualified Phoityne.VSCode.TH.InitializeResponseCapabilitiesJSON as J
 import qualified Phoityne.VSCode.TH.InitializeResponseJSON as J
 import qualified Phoityne.VSCode.TH.LaunchRequestArgumentsJSON as J
 import qualified Phoityne.VSCode.TH.LaunchRequestJSON as J
 import qualified Phoityne.VSCode.TH.LaunchResponseJSON as J
+-- import qualified Phoityne.VSCode.TH.ModulesArgumentsJSON as J
+-- import qualified Phoityne.VSCode.TH.ModulesRequestJSON as J
+-- import qualified Phoityne.VSCode.TH.ModulesResponseBodyJSON as J
+-- import qualified Phoityne.VSCode.TH.ModulesResponseJSON
 import qualified Phoityne.VSCode.TH.NextRequestJSON as J
 import qualified Phoityne.VSCode.TH.NextResponseJSON as J
 import qualified Phoityne.VSCode.TH.OutputEventJSON as J
@@ -78,7 +88,7 @@ import qualified Phoityne.VSCode.TH.ScopesArgumentsJSON as J
 import qualified Phoityne.VSCode.TH.ScopesBodyJSON as J
 import qualified Phoityne.VSCode.TH.ScopesRequestJSON as J
 import qualified Phoityne.VSCode.TH.ScopesResponseJSON as J
-import qualified Phoityne.VSCode.TH.SetBreakpointsRequestArgumentsJSON as J
+import qualified Phoityne.VSCode.TH.SetBreakpointsArgumentsJSON as J
 import qualified Phoityne.VSCode.TH.SetBreakpointsRequestJSON as J
 import qualified Phoityne.VSCode.TH.SetBreakpointsResponseBodyJSON as J
 import qualified Phoityne.VSCode.TH.SetBreakpointsResponseJSON as J
@@ -423,16 +433,179 @@ sendRestartEvent mvarCtx = do
   sendEvent mvarCtx terminatedEvtStr
 
 
+
+-- |=====================================================================
+--  DAP Utility
+--
+
+-- |
+--
+readDAP :: Read a => String -> Either String a
+readDAP argsStr = case R.readEither argsStr :: Either String [Word8] of
+  Left err -> Left $ "read [Word8] failed. " ++ err ++ " : " ++ argsStr
+  Right bs -> case R.readEither (toStr bs) of
+    Left err -> Left $ "read toStr] failed. " ++ err ++ " : " ++  (toStr bs)
+    Right a  -> Right a 
+  where
+    toStr = T.unpack . T.decodeUtf8 . BS.pack
+
+-- |
+--
+showDAP :: Show a => a -> String
+showDAP = show . BS.unpack . T.encodeUtf8 . T.pack . show
+
+
+-- |=====================================================================
+--  DAP Handlers
+--
+
+type DAPRequestHandler = MVar DebugContextData -> BSL.ByteString -> BSL.ByteString -> IO ()
+
+-- |
+--
+_SUPPORTED_DAP :: M.Map String DAPRequestHandler
+_SUPPORTED_DAP = M.fromList [
+    ("setBreakpoints-dummy", setBreakpointsRequestHandlerDAP)
+  ]
+
+
+-- |
+--
+--
+handleRequestDAP :: MVar DebugContextData -> BSL.ByteString -> BSL.ByteString -> IO ()
+handleRequestDAP mvarDat contLenStr jsonStr = case J.eitherDecode jsonStr :: Either String J.Request of
+  Right (J.Request cmd) -> case M.lookup cmd _SUPPORTED_DAP of
+    Just hdl -> hdl mvarDat contLenStr jsonStr
+    Nothing  -> sendCmdNotFoundErrorAndTerminate cmd
+  Left  err -> sendParseErrorAndTerminate mvarDat contLenStr jsonStr err
+
+  where
+    sendCmdNotFoundErrorAndTerminate cmd = do
+      let msg =  L.intercalate "\n"
+              $ [  "[CRITICAL]"++"<"++cmd++">"++" request command not found."
+                ,  lbs2str contLenStr
+                ,  lbs2str jsonStr
+                ,  ""
+                ] ++ _ERR_MSG_URL ++ ["", ""]
+      sendErrorEvent mvarDat msg
+      sendTerminateEvent mvarDat
+
+      
+-- |
+--
+sendParseErrorAndTerminate :: MVar DebugContextData -> BSL.ByteString -> BSL.ByteString -> String -> IO ()
+sendParseErrorAndTerminate mvarDat contLenStr jsonStr err = do
+  let msg =  L.intercalate "\n"
+          $ [  "[CRITICAL]" ++ "request parce error."
+            ,  lbs2str contLenStr
+            ,  lbs2str jsonStr
+            ,  err, ""
+            ] ++ _ERR_MSG_URL ++ ["", ""]
+  sendErrorEvent mvarDat msg
+  sendTerminateEvent mvarDat
+
+
+-- |
+--
+sendGHCiProcErrorAndTerminate :: MVar DebugContextData -> BSL.ByteString -> BSL.ByteString -> String -> IO ()
+sendGHCiProcErrorAndTerminate mvarDat contLenStr jsonStr err = do
+  let msg =  L.intercalate "\n"
+          $ [  "[CRITICAL]" ++ "ghci process has not started."
+            ,  lbs2str contLenStr
+            ,  lbs2str jsonStr
+            , err, ""
+            ]
+  sendErrorEvent mvarDat msg
+  sendTerminateEvent mvarDat
+
+
+-- |
+--
+sendDAPCmdErrorAndTerminate :: MVar DebugContextData -> BSL.ByteString -> BSL.ByteString -> String -> IO ()
+sendDAPCmdErrorAndTerminate mvarDat contLenStr jsonStr err = do
+  let msg =  L.intercalate "\n"
+          $ [  "[CRITICAL]" ++ "dap command execution failed."
+            ,  lbs2str contLenStr
+            ,  lbs2str jsonStr
+            ,  err, ""
+            ]
+  sendErrorEvent mvarDat msg
+  sendTerminateEvent mvarDat
+
+
+-- |
+--
+sendDAPUnserializeErrorAndTerminate :: MVar DebugContextData -> BSL.ByteString -> BSL.ByteString -> String -> IO ()
+sendDAPUnserializeErrorAndTerminate mvarDat contLenStr jsonStr err = do
+  let msg =  L.intercalate "\n"
+          $ [  "[CRITICAL]" ++ "dap command result unserialization failed."
+            ,  lbs2str contLenStr
+            ,  lbs2str jsonStr
+            ,  err, ""
+            ]
+  sendErrorEvent mvarDat msg
+  sendTerminateEvent mvarDat
+
+
+-- |
+--
+sendDAPResultErrorAndTerminate :: MVar DebugContextData -> BSL.ByteString -> BSL.ByteString -> String -> IO ()
+sendDAPResultErrorAndTerminate mvarDat contLenStr jsonStr err = do
+  let msg =  L.intercalate "\n"
+          $ [  "[CRITICAL]" ++ "dap command result error."
+            ,  lbs2str contLenStr
+            ,  lbs2str jsonStr
+            ,  err, ""
+            ]
+  sendErrorEvent mvarDat msg
+  sendTerminateEvent mvarDat
+
+
+-- |
+--
+setBreakpointsRequestHandlerDAP :: DAPRequestHandler
+setBreakpointsRequestHandlerDAP mvarCtx contLenStr jsonStr = case J.eitherDecode jsonStr :: Either String J.SetBreakpointsRequest of
+  Left  err -> sendParseErrorAndTerminate mvarCtx contLenStr jsonStr err
+  Right req -> do
+    logRequest $ show req
+    ghciProcessDebugContextData <$> (readMVar mvarCtx) >>= withProcess req
+
+  where
+    withProcess req Nothing = sendGHCiProcErrorAndTerminate mvarCtx contLenStr jsonStr (show req)
+    withProcess req (Just proc) = do
+      let cmd = ":dap-set-breakpoints"
+          args = showDAP $ J.argumentsSetBreakpointsRequest req
+
+      G.dapCommand proc outHdl cmd args >>= withResult req
+
+    withResult req (Left err) = sendDAPCmdErrorAndTerminate mvarCtx contLenStr jsonStr (show req ++ err)
+    withResult req (Right strDat) = withBody req $ readDAP strDat
+   
+    withBody :: J.SetBreakpointsRequest -> Either String (Either String J.SetBreakpointsResponseBody) -> IO ()
+    withBody req (Left err) = sendDAPUnserializeErrorAndTerminate mvarCtx contLenStr jsonStr (show req ++ err)
+    withBody req (Right (Left err)) = sendDAPResultErrorAndTerminate mvarCtx contLenStr jsonStr (show req ++ err)
+    withBody req (Right (Right body)) = do
+      resSeq <- getIncreasedResponseSequence mvarCtx
+      let res    = J.defaultSetBreakpointsResponse resSeq req
+          resStr = J.encode res{J.bodySetBreakpointsResponse = body}
+      sendResponse mvarCtx resStr
+
+    outHdl = sendStdoutEvent mvarCtx
+
+
 -- |=====================================================================
 --  Handlers
+--
 
 -- |
 --
 --
 handleRequest :: MVar DebugContextData -> BSL.ByteString -> BSL.ByteString -> IO ()
 handleRequest mvarDat contLenStr jsonStr = do
+  isDAP <- haskellDapEnabledDebugContextData <$> (readMVar mvarDat)
   case J.eitherDecode jsonStr :: Either String J.Request of
-    Right (J.Request cmd) -> handle cmd
+    Right (J.Request cmd) ->if isDAP && M.member cmd _SUPPORTED_DAP then handleRequestDAP mvarDat contLenStr jsonStr
+                              else handle cmd
     Left  err -> sendParseErrorAndTerminate err "request"
 
   where
@@ -445,6 +618,7 @@ handleRequest mvarDat contLenStr jsonStr = do
                 ] ++ _ERR_MSG_URL ++ ["", ""]
       sendErrorEvent mvarDat msg
       sendTerminateEvent mvarDat
+
 
     handle "initialize" = case J.eitherDecode jsonStr :: Either String J.InitializeRequest of
       Right req -> initializeRequestHandler mvarDat req
@@ -563,22 +737,24 @@ handleRequest mvarDat contLenStr jsonStr = do
 initializeRequestHandler :: MVar DebugContextData -> J.InitializeRequest -> IO ()
 initializeRequestHandler mvarCtx req@(J.InitializeRequest seq _ _ _) = flip E.catches handlers $ do
   resSeq <- getIncreasedResponseSequence mvarCtx
-  let capa = J.InitializeResponseCapabilites {
-             J.supportsConfigurationDoneRequestInitializeResponseCapabilites  = True
-           , J.supportsFunctionBreakpointsInitializeResponseCapabilites       = True
-           , J.supportsConditionalBreakpointsInitializeResponseCapabilites    = True
-           , J.supportsHitConditionalBreakpointsInitializeResponseCapabilites = True
-           , J.supportsEvaluateForHoversInitializeResponseCapabilites         = True
-           , J.exceptionBreakpointFiltersInitializeResponseCapabilites        = [
+  let capa = J.InitializeResponseCapabilities {
+             J.supportsConfigurationDoneRequestInitializeResponseCapabilities  = True
+           , J.supportsFunctionBreakpointsInitializeResponseCapabilities       = True
+           , J.supportsConditionalBreakpointsInitializeResponseCapabilities    = True
+           , J.supportsHitConditionalBreakpointsInitializeResponseCapabilities = True
+           , J.supportsEvaluateForHoversInitializeResponseCapabilities         = True
+           , J.exceptionBreakpointFiltersInitializeResponseCapabilities        = [
                  J.ExceptionBreakpointsFilter "break-on-error" "break-on-error" False
                , J.ExceptionBreakpointsFilter "break-on-exception" "break-on-exception" False
                ]
-           , J.supportsStepBackInitializeResponseCapabilites                  = False
-           , J.supportsSetVariableInitializeResponseCapabilites               = False
-           , J.supportsRestartFrameInitializeResponseCapabilites              = False
-           , J.supportsGotoTargetsRequestInitializeResponseCapabilites        = False
-           , J.supportsStepInTargetsRequestInitializeResponseCapabilites      = False
-           , J.supportsCompletionsRequestInitializeResponseCapabilites        = True
+           , J.supportsStepBackInitializeResponseCapabilities                  = False
+           , J.supportsSetVariableInitializeResponseCapabilities               = False
+           , J.supportsRestartFrameInitializeResponseCapabilities              = False
+           , J.supportsGotoTargetsRequestInitializeResponseCapabilities        = False
+           , J.supportsStepInTargetsRequestInitializeResponseCapabilities      = False
+           , J.supportsCompletionsRequestInitializeResponseCapabilities        = True
+           , J.supportsModulesRequestInitializeResponseCapabilities            = False  -- no GUI on VSCode
+           , J.additionalModuleColumnsInitializeResponseCapabilities           = []     -- no GUI on VSCode
            }
       res  = J.InitializeResponse resSeq "response" seq True "initialize" "" capa
 
@@ -789,14 +965,14 @@ disconnectRequestHandler mvarCtx req = do
 setBreakpointsRequestHandler :: MVar DebugContextData -> J.SetBreakpointsRequest -> IO ()
 setBreakpointsRequestHandler mvarCtx req = do
   ctx <- readMVar mvarCtx
-  let cwd     = workspaceDebugContextData ctx
+  let cwd     = nzPath $ workspaceDebugContextData ctx
       args    = J.argumentsSetBreakpointsRequest req
-      source  = J.sourceSetBreakpointsRequestArguments args
-      path    = J.pathSource source
+      source  = J.sourceSetBreakpointsArguments args
+      path    = nzPath $ J.pathSource source
 
   if U.startswith cwd path then setBreakpointsInternal mvarCtx req 
     else do
-      let msg = L.intercalate " " ["setBreakpoints request ignored."]
+      let msg = L.intercalate " " ["setBreakpoints request ignored.", cwd, path]
       resSeq <- getIncreasedResponseSequence mvarCtx
       sendResponse mvarCtx $ J.encode $ J.errorSetBreakpointsResponse resSeq req msg 
 
@@ -810,9 +986,9 @@ setBreakpointsInternal mvarCtx req = flip E.catches handlers $ do
   ctx <- readMVar mvarCtx
   let cwd     = workspaceDebugContextData ctx
       args    = J.argumentsSetBreakpointsRequest req
-      source  = J.sourceSetBreakpointsRequestArguments args
+      source  = J.sourceSetBreakpointsArguments args
       path    = J.pathSource source
-      reqBps  = J.breakpointsSetBreakpointsRequestArguments args
+      reqBps  = J.breakpointsSetBreakpointsArguments args
       startup = startupDebugContextData ctx
       stMod   = startupModuleDebugContextData ctx
       bps     = map (convBp cwd path startup stMod) reqBps
@@ -860,9 +1036,13 @@ setBreakpointsInternal mvarCtx req = flip E.catches handlers $ do
 
       mapM_ (deleteBreakPointOnGHCi mvarCtx) delBps
 
-
+    -- |
+    --
+    insert :: [BreakPointData] -> IO [J.Breakpoint]
     insert reqBps = do
+      
       results <- mapM insertInternal reqBps
+
       let addBps  = filter (\(_, (J.Breakpoint _ verified _ _ _ _ _ _)) -> verified) results
           resData = map snd results
 
@@ -890,6 +1070,53 @@ setBreakpointsInternal mvarCtx req = flip E.catches handlers $ do
                   J.Breakpoint Nothing False err
                     (J.Source (Just modName) filePath Nothing Nothing)
                     lineNo (-1) lineNo (-1))
+
+    {-
+    insertInternalDAP reqBp = ghciProcessDebugContextData <$> (readMVar mvarCtx) >>= withProc reqBp
+        
+    withProc reqBp Nothing = do
+      errorM _LOG_NAME $ "[insertInternalDAP] ghci not started. " ++ show reqBp
+      return (reqBp,
+              J.Breakpoint Nothing False "ghci not started."
+                (J.Source Nothing "" Nothing Nothing)
+                (-1) (-1) (-1) (-1))
+
+    withProc reqBp@(BreakPointData _ (G.SourcePosition filePath lineNo col _ _) _ _ _ _) (Just ghciProc) =
+      G.setBreakDAP ghciProc outHdl (nzPath filePath) lineNo col >>= \case
+        Left err ->
+          return (reqBp,
+                  J.Breakpoint Nothing False err
+                    (J.Source Nothing filePath Nothing Nothing)
+                    lineNo (-1) lineNo (-1))
+        Right dats -> case readMay dats of
+          Just (Right jbp@(J.Breakpoint idBP _ _ srcBP sl sc el ec)) -> do
+            debugM _LOG_NAME $ "[insertInternalDAP] read string: " ++ dats
+            return (reqBp{ nameBreakPointData = maybe "" id (J.nameSource srcBP)
+                         , breakNoBreakPointData = idBP
+                         , srcPosBreakPointData  = (srcPosBreakPointData reqBp) {
+                             G.startLineNoSourcePosition = sl
+                           , G.startColNoSourcePosition  = sc
+                           , G.endLineNoSourcePosition   = el
+                           , G.endColNoSourcePosition    = ec
+                           }
+                        },
+                    jbp)
+          Just (Left err) -> do
+            sendErrorEvent mvarCtx $ "[insertInternalDAP] " ++ err
+            return (reqBp,
+                    J.Breakpoint Nothing False err
+                      (J.Source Nothing filePath Nothing Nothing)
+                      lineNo (-1) lineNo (-1))
+          Nothing -> do
+            sendErrorEvent mvarCtx $ "[insertInternalDAP] can not read valriables. " ++ dats
+            return (reqBp,
+                    J.Breakpoint Nothing False "dap error. can not read valriables."
+                      (J.Source Nothing filePath Nothing Nothing)
+                      lineNo (-1) lineNo (-1))
+
+    outHdl = sendStdoutEvent mvarCtx
+    -}
+
 
 -- |
 --
@@ -1714,7 +1941,7 @@ loadHsFile mvarCtx path = ghciProcessDebugContextData <$> (readMVar mvarCtx) >>=
 
 
 -- |
---  ブレークポイントをGHCi上でdeleteする
+-- 
 --
 deleteBreakPointOnGHCi :: MVar DebugContextData -> BreakPointData -> IO ()
 deleteBreakPointOnGHCi mvarCtx bp@(BreakPointData _ _ (Just breakNo) _ _ _) = 
@@ -1731,7 +1958,7 @@ deleteBreakPointOnGHCi mvarCtx bp@(BreakPointData _ _ (Just breakNo) _ _ _) =
 deleteBreakPointOnGHCi mvarCtx bp = sendErrorEvent mvarCtx $ "[deleteBreakPointOnGHCi] invalid delete break point. "  ++ show bp
 
 -- |
---  GHCi上でブレークポイントを追加する
+-- 
 --
 addBreakPointOnGHCi :: MVar DebugContextData -> BreakPointData -> IO (Either String (Int, G.SourcePosition))
 addBreakPointOnGHCi mvarCtx bp@(BreakPointData modName (G.SourcePosition _ lineNo col _ _) _ _ _ _) =
@@ -1745,7 +1972,7 @@ addBreakPointOnGHCi mvarCtx bp@(BreakPointData modName (G.SourcePosition _ lineN
     outHdl = sendStdoutEvent mvarCtx
 
 -- |
---  GHCi上で関数ブレークポイントを追加する
+-- 
 --
 addFunctionBreakPointOnGHCi :: MVar DebugContextData -> BreakPointData -> IO (Either String (Int, G.SourcePosition))
 addFunctionBreakPointOnGHCi mvarCtx bp@(BreakPointData name _ _ _ _ _) =
@@ -1760,7 +1987,7 @@ addFunctionBreakPointOnGHCi mvarCtx bp@(BreakPointData name _ _ _ _ _) =
     
 
 -- |
---  Loggerのセットアップ
+-- 
 -- 
 setupLogger :: FilePath -> Priority -> IO ()
 setupLogger logFile level = do

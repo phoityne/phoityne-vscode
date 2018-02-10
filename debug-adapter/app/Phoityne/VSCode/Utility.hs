@@ -19,6 +19,58 @@ import qualified Data.Tree as TR
 import qualified Data.Conduit.Binary as C
 import qualified Data.Conduit as C
 import qualified Data.Conduit.List as C
+import qualified Data.Char as CH
+
+
+-- |
+--
+_SLASH :: Char
+_SLASH = '/'
+
+
+-- |
+--
+_BACK_SLASH :: Char
+_BACK_SLASH = '\\'
+
+
+-- |
+--
+toLower :: String -> String
+toLower = map CH.toLower
+
+
+-- |
+--
+toUpper :: String -> String
+toUpper = map CH.toUpper
+
+
+-- |
+--
+win2unixSlash :: String -> String
+win2unixSlash = map (\c -> if c == _BACK_SLASH then _SLASH else c)
+
+
+-- |
+--
+unix2winSlash :: String -> String
+unix2winSlash = map (\c -> if c == _SLASH then _BACK_SLASH else c)
+
+
+-- |
+--   normalized path
+--
+nzPath :: FilePath -> FilePath
+nzPath = drive2lower . win2unixSlash
+
+
+-- |
+--  to lowercase Windows drive letter 
+-- 
+drive2lower :: FilePath -> FilePath
+drive2lower (x : ':' : xs) = CH.toLower x : ':' : xs
+drive2lower xs = xs
 
 
 -- |

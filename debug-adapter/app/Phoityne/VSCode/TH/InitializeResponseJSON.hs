@@ -6,7 +6,7 @@ module Phoityne.VSCode.TH.InitializeResponseJSON where
 import Data.Aeson.TH
 
 import Phoityne.VSCode.Utility
-import Phoityne.VSCode.TH.InitializeResponseCapabilitesJSON
+import Phoityne.VSCode.TH.InitializeResponseCapabilitiesJSON
 import Phoityne.VSCode.TH.InitializeRequestJSON
 
 -- |
@@ -20,7 +20,7 @@ data InitializeResponse =
   , successInitializeResponse     :: Bool    -- Outcome of the request
   , commandInitializeResponse     :: String  -- The command requested 
   , messageInitializeResponse     :: String  -- Contains error message if success == false.
-  , bodyInitializeResponse        :: InitializeResponseCapabilites  -- The capabilities of this debug adapter
+  , bodyInitializeResponse        :: InitializeResponseCapabilities  -- The capabilities of this debug adapter
   } deriving (Show, Read, Eq)
 
 $(deriveJSON defaultOptions { fieldLabelModifier = rdrop (length "InitializeResponse") } ''InitializeResponse)
@@ -30,11 +30,11 @@ $(deriveJSON defaultOptions { fieldLabelModifier = rdrop (length "InitializeResp
 --
 parseErrorInitializeResponse :: Int -> String -> InitializeResponse
 parseErrorInitializeResponse seq msg =
-  InitializeResponse seq "response" seq False "initialize" msg defaultInitializeResponseCapabilites
+  InitializeResponse seq "response" seq False "initialize" msg defaultInitializeResponseCapabilities
 
 -- |
 --
 errorInitializeResponse :: Int -> InitializeRequest -> String -> InitializeResponse
 errorInitializeResponse seq (InitializeRequest reqSeq _ _ _) msg =
-  InitializeResponse seq "response" reqSeq False "initialize" msg defaultInitializeResponseCapabilites
+  InitializeResponse seq "response" reqSeq False "initialize" msg defaultInitializeResponseCapabilities
 

@@ -1,5 +1,5 @@
 name:                  phoityne-vscode
-version:               0.0.20.0
+version:               0.0.21.0
 synopsis:              Haskell Debug Adapter for Visual Studio Code.
 description:           Please see README.md
 license:               BSD3
@@ -22,12 +22,13 @@ executable phoityne-vscode
   other-modules:       Paths_phoityne_vscode
                      , Phoityne.VSCode.Argument
                      , Phoityne.VSCode.Control
-                     , Phoityne.VSCode.Main
                      , Phoityne.VSCode.Core
                      , Phoityne.VSCode.Constant
+                     , Phoityne.VSCode.Type
                      , Phoityne.VSCode.Utility
                      , Phoityne.VSCode.Utility
                      , Phoityne.VSCode.TH.BreakpointJSON
+                     , Phoityne.VSCode.TH.ColumnDescriptorJSON
                      , Phoityne.VSCode.TH.CompletionsItemJSON
                      , Phoityne.VSCode.TH.CompletionsArgumentsJSON
                      , Phoityne.VSCode.TH.CompletionsResponseBodyJSON
@@ -54,12 +55,17 @@ executable phoityne-vscode
                      , Phoityne.VSCode.TH.InitializedEventJSON
                      , Phoityne.VSCode.TH.InitializeRequestArgumentsJSON
                      , Phoityne.VSCode.TH.InitializeRequestJSON
-                     , Phoityne.VSCode.TH.InitializeResponseCapabilitesJSON
+                     , Phoityne.VSCode.TH.InitializeResponseCapabilitiesJSON
                      , Phoityne.VSCode.TH.InitializeResponseJSON
                      , Phoityne.VSCode.TH.LaunchRequestArgumentsJSON
                      , Phoityne.VSCode.TH.LaunchRequestJSON
                      , Phoityne.VSCode.TH.LaunchResponseJSON
                      , Phoityne.VSCode.TH.MessageJSON
+                     , Phoityne.VSCode.TH.ModuleJSON
+                     , Phoityne.VSCode.TH.ModulesArgumentsJSON
+                     , Phoityne.VSCode.TH.ModulesRequestJSON
+                     , Phoityne.VSCode.TH.ModulesResponseBodyJSON
+                     , Phoityne.VSCode.TH.ModulesResponseJSON
                      , Phoityne.VSCode.TH.NextArgumentsJSON
                      , Phoityne.VSCode.TH.NextRequestJSON
                      , Phoityne.VSCode.TH.NextResponseJSON
@@ -74,7 +80,7 @@ executable phoityne-vscode
                      , Phoityne.VSCode.TH.ScopesBodyJSON
                      , Phoityne.VSCode.TH.ScopesRequestJSON
                      , Phoityne.VSCode.TH.ScopesResponseJSON
-                     , Phoityne.VSCode.TH.SetBreakpointsRequestArgumentsJSON
+                     , Phoityne.VSCode.TH.SetBreakpointsArgumentsJSON
                      , Phoityne.VSCode.TH.SetBreakpointsRequestJSON
                      , Phoityne.VSCode.TH.SetBreakpointsResponseBodyJSON
                      , Phoityne.VSCode.TH.SetBreakpointsResponseJSON
@@ -142,5 +148,8 @@ executable phoityne-vscode
                      , conduit
                      , conduit-extra
                      , resourcet
+                     , safe-exceptions
+                     , lens
+                     , data-default
   default-language:    Haskell2010
 
