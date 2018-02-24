@@ -11,7 +11,9 @@ import Phoityne.VSCode.Utility
 --
 data Request =
   Request {
-    commandRequest   :: String    -- The command to execute
+    seqRequest       :: Int     -- Sequence number. 
+  , typeRequest      :: String  -- Message type. Values: 'request', 'response', 'event', etc.
+  , commandRequest   :: String    -- The command to execute
   -- , argumentsRequest :: [String]  -- Object containing arguments for the command
   } deriving (Show, Read, Eq)
 

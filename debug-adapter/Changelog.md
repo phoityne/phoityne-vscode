@@ -1,3 +1,7 @@
+20180225 phoityne-vscode-0.0.22.0
+  * [UPDATE] supported haskell-dap-0.0.3.0
+
+
 20180211 phoityne-vscode-0.0.21.0
   * [MODIFY] [34](https://github.com/phoityne/phoityne-vscode/issues/34) : can not set breakpoint on vscode-1.20.0
 

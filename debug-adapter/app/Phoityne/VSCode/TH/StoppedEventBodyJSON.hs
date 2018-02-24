@@ -5,16 +5,17 @@ module Phoityne.VSCode.TH.StoppedEventBodyJSON where
 
 import Data.Aeson.TH
 
-import Phoityne.VSCode.Utility
+import Phoityne.VSCode.Utility  
 
 -- |
---   Event message for "stopped" event type.
+--   Event message for 'stopped' event type.
 --   The event indicates that the execution of the debuggee has stopped due to some condition.
 --   This can be caused by a break point previously set, a stepping action has completed, by executing a debugger statement etc.
 --
 data StoppedEventBody =
   StoppedEventBody {
-    reasonStoppedEventBody            :: String  -- The reason for the event (such as: 'step', 'breakpoint', 'exception', 'pause'). This string is shown in the UI.
+    reasonStoppedEventBody            :: String  -- The reason for the event.For backward compatibility this string is shown in the UI if the 'description' attribute is missing (but it must not be translated).Values: 'step', 'breakpoint', 'exception', 'pause', 'entry', etc.
+  , descriptionStoppedEventBody       :: String  -- The full reason for the event, e.g. 'Paused on exception'. This string is shown in the UI as is.
   , threadIdStoppedEventBody          :: Int     -- The thread which was stopped.
   , textStoppedEventBody              :: String  -- Additional information. E.g. if reason is 'exception', text contains the exception name. This string is shown in the UI. 
 
@@ -24,10 +25,11 @@ data StoppedEventBody =
   , allThreadsStoppedStoppedEventBody :: Bool
   } deriving (Show, Read, Eq)
 
+
 $(deriveJSON defaultOptions { fieldLabelModifier = rdrop (length "StoppedEventBody") } ''StoppedEventBody)
 
 defaultStoppedEventBody :: StoppedEventBody
-defaultStoppedEventBody = StoppedEventBody "step" 0 "" False
+defaultStoppedEventBody = StoppedEventBody "step" "" 0 "" False
 
 exceptionStoppedEventBody :: String -> StoppedEventBody
-exceptionStoppedEventBody msg = StoppedEventBody "exception" 0 msg False
+exceptionStoppedEventBody msg = StoppedEventBody "exception" "" 0 msg False

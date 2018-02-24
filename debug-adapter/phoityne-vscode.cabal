@@ -1,5 +1,5 @@
 name:                  phoityne-vscode
-version:               0.0.21.0
+version:               0.0.22.0
 synopsis:              Haskell Debug Adapter for Visual Studio Code.
 description:           Please see README.md
 license:               BSD3
@@ -75,6 +75,7 @@ executable phoityne-vscode
                      , Phoityne.VSCode.TH.PauseRequestJSON
                      , Phoityne.VSCode.TH.PauseResponseJSON
                      , Phoityne.VSCode.TH.RequestJSON
+                     , Phoityne.VSCode.TH.ResponseJSON 
                      , Phoityne.VSCode.TH.ScopeJSON
                      , Phoityne.VSCode.TH.ScopesArgumentsJSON
                      , Phoityne.VSCode.TH.ScopesBodyJSON

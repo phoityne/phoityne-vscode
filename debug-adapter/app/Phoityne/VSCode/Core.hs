@@ -19,6 +19,7 @@ import qualified Phoityne.GHCi as G
 import Paths_phoityne_vscode (version)
 import Control.Concurrent
 import Control.Monad
+import Control.Monad.Except
 import Data.List.Split
 import Data.Char
 import Safe
@@ -57,6 +58,7 @@ import qualified Phoityne.VSCode.TH.CompletionsRequestJSON as J
 import qualified Phoityne.VSCode.TH.CompletionsResponseJSON as J
 import qualified Phoityne.VSCode.TH.ConfigurationDoneRequestJSON as J
 import qualified Phoityne.VSCode.TH.ConfigurationDoneResponseJSON as J
+import qualified Phoityne.VSCode.TH.ContinueArgumentsJSON as J
 import qualified Phoityne.VSCode.TH.ContinueRequestJSON as J
 import qualified Phoityne.VSCode.TH.ContinueResponseJSON as J
 import qualified Phoityne.VSCode.TH.DisconnectRequestJSON as J
@@ -84,8 +86,9 @@ import qualified Phoityne.VSCode.TH.OutputEventBodyJSON as J
 import qualified Phoityne.VSCode.TH.PauseRequestJSON as J
 import qualified Phoityne.VSCode.TH.PauseResponseJSON as J
 import qualified Phoityne.VSCode.TH.RequestJSON as J
+import qualified Phoityne.VSCode.TH.ResponseJSON as J
 import qualified Phoityne.VSCode.TH.ScopesArgumentsJSON as J
-import qualified Phoityne.VSCode.TH.ScopesBodyJSON as J
+-- import qualified Phoityne.VSCode.TH.ScopesBodyJSON as J
 import qualified Phoityne.VSCode.TH.ScopesRequestJSON as J
 import qualified Phoityne.VSCode.TH.ScopesResponseJSON as J
 import qualified Phoityne.VSCode.TH.SetBreakpointsArgumentsJSON as J
@@ -119,7 +122,7 @@ import qualified Phoityne.VSCode.TH.TerminatedEventBodyJSON as J
 import qualified Phoityne.VSCode.TH.ThreadsRequestJSON as J
 import qualified Phoityne.VSCode.TH.ThreadsResponseJSON as J
 import qualified Phoityne.VSCode.TH.VariableJSON as J
-import qualified Phoityne.VSCode.TH.VariablesArgumentsJSON as J
+-- import qualified Phoityne.VSCode.TH.VariablesArgumentsJSON as J
 import qualified Phoityne.VSCode.TH.VariablesBodyJSON as J
 import qualified Phoityne.VSCode.TH.VariablesRequestJSON as J
 import qualified Phoityne.VSCode.TH.VariablesResponseJSON as J
@@ -417,11 +420,11 @@ sendEvent mvarCtx str =  do
 -- |
 --
 sendTerminateEvent :: MVar DebugContextData -> IO ()
-sendTerminateEvent mvarDat = do
-  resSeq <- getIncreasedResponseSequence mvarDat
+sendTerminateEvent mvarCtx = do
+  resSeq <- getIncreasedResponseSequence mvarCtx
   let terminatedEvt    = J.defaultTerminatedEvent resSeq
       terminatedEvtStr = J.encode terminatedEvt
-  sendEvent mvarDat terminatedEvtStr
+  sendEvent mvarCtx terminatedEvtStr
 
 -- |
 --
@@ -444,7 +447,7 @@ readDAP :: Read a => String -> Either String a
 readDAP argsStr = case R.readEither argsStr :: Either String [Word8] of
   Left err -> Left $ "read [Word8] failed. " ++ err ++ " : " ++ argsStr
   Right bs -> case R.readEither (toStr bs) of
-    Left err -> Left $ "read toStr] failed. " ++ err ++ " : " ++  (toStr bs)
+    Left err -> Left $ "read response body failed. " ++ err ++ " : " ++  (toStr bs)
     Right a  -> Right a 
   where
     toStr = T.unpack . T.decodeUtf8 . BS.pack
@@ -454,18 +457,47 @@ readDAP argsStr = case R.readEither argsStr :: Either String [Word8] of
 showDAP :: Show a => a -> String
 showDAP = show . BS.unpack . T.encodeUtf8 . T.pack . show
 
+-- |
+--
+getProcExcept :: MVar DebugContextData -> ExceptT String IO G.GHCiProcess
+getProcExcept mvarCtx = do
+  ctx <- liftIO $ readMVar mvarCtx
+  case ghciProcessDebugContextData ctx of
+    Nothing -> throwError $ "ghci process not started."
+    Just a  -> return a
+
+-- |
+--
+exceptIO :: Either e a -> ExceptT e IO a
+exceptIO (Left err) = throwError err
+exceptIO (Right a)  = return a
+
+-- |
+--
+readExcept :: Read a => String -> ExceptT String IO (Either String a)
+readExcept = exceptIO . readDAP
+
 
 -- |=====================================================================
 --  DAP Handlers
 --
 
-type DAPRequestHandler = MVar DebugContextData -> BSL.ByteString -> BSL.ByteString -> IO ()
+type DAPRequestHandler = MVar DebugContextData
+                       -> BSL.ByteString
+                       -> BSL.ByteString
+                       -> J.Request
+                       -> IO ()
 
 -- |
 --
 _SUPPORTED_DAP :: M.Map String DAPRequestHandler
 _SUPPORTED_DAP = M.fromList [
-    ("setBreakpoints-dummy", setBreakpointsRequestHandlerDAP)
+    ("setBreakpoints", setBreakpointsRequestHandlerDAP)
+  , ("continue",       continueRequestHandlerDAP)
+  , ("stackTrace",     stackTraceRequestHandlerDAP)
+  , ("scopes",         scopesRequestHandlerDAP)
+  , ("variables",      variablesRequestHandlerDAP)
+  , ("evaluate",       evaluateRequestHandlerDAP)
   ]
 
 
@@ -473,125 +505,311 @@ _SUPPORTED_DAP = M.fromList [
 --
 --
 handleRequestDAP :: MVar DebugContextData -> BSL.ByteString -> BSL.ByteString -> IO ()
-handleRequestDAP mvarDat contLenStr jsonStr = case J.eitherDecode jsonStr :: Either String J.Request of
-  Right (J.Request cmd) -> case M.lookup cmd _SUPPORTED_DAP of
-    Just hdl -> hdl mvarDat contLenStr jsonStr
-    Nothing  -> sendCmdNotFoundErrorAndTerminate cmd
-  Left  err -> sendParseErrorAndTerminate mvarDat contLenStr jsonStr err
-
-  where
-    sendCmdNotFoundErrorAndTerminate cmd = do
-      let msg =  L.intercalate "\n"
-              $ [  "[CRITICAL]"++"<"++cmd++">"++" request command not found."
-                ,  lbs2str contLenStr
-                ,  lbs2str jsonStr
-                ,  ""
-                ] ++ _ERR_MSG_URL ++ ["", ""]
-      sendErrorEvent mvarDat msg
-      sendTerminateEvent mvarDat
+handleRequestDAP mvarCtx contLenStr jsonStr = case J.eitherDecode jsonStr :: Either String J.Request of
+  Left  err -> sendParseErrorAndTerminateEvent mvarCtx contLenStr jsonStr err
+  Right req@(J.Request reqSeq _ cmd) -> case M.lookup cmd _SUPPORTED_DAP of
+    Just hdl -> hdl mvarCtx contLenStr jsonStr req
+    Nothing  -> do
+      resSeq <- getIncreasedResponseSequence mvarCtx
+      let res    = J.errorResponse resSeq reqSeq "request" $ "command not supported. " ++ cmd
+          resStr = J.encode res
+      sendResponse mvarCtx resStr
 
       
 -- |
 --
-sendParseErrorAndTerminate :: MVar DebugContextData -> BSL.ByteString -> BSL.ByteString -> String -> IO ()
-sendParseErrorAndTerminate mvarDat contLenStr jsonStr err = do
+sendParseErrorAndTerminateEvent :: MVar DebugContextData -> BSL.ByteString -> BSL.ByteString -> String -> IO ()
+sendParseErrorAndTerminateEvent mvarCtx contLenStr jsonStr err = do
   let msg =  L.intercalate "\n"
           $ [  "[CRITICAL]" ++ "request parce error."
             ,  lbs2str contLenStr
             ,  lbs2str jsonStr
             ,  err, ""
             ] ++ _ERR_MSG_URL ++ ["", ""]
-  sendErrorEvent mvarDat msg
-  sendTerminateEvent mvarDat
+  sendErrorEvent mvarCtx msg
+  sendTerminateEvent mvarCtx
 
 
 -- |
 --
-sendGHCiProcErrorAndTerminate :: MVar DebugContextData -> BSL.ByteString -> BSL.ByteString -> String -> IO ()
-sendGHCiProcErrorAndTerminate mvarDat contLenStr jsonStr err = do
+sendParseErrorResponse :: MVar DebugContextData -> BSL.ByteString -> BSL.ByteString -> J.Request -> String -> IO ()
+sendParseErrorResponse mvarCtx contLenStr jsonStr (J.Request req _ cmd) errMsg = do
+  resSeq <- getIncreasedResponseSequence mvarCtx
   let msg =  L.intercalate "\n"
-          $ [  "[CRITICAL]" ++ "ghci process has not started."
-            ,  lbs2str contLenStr
-            ,  lbs2str jsonStr
-            , err, ""
-            ]
-  sendErrorEvent mvarDat msg
-  sendTerminateEvent mvarDat
-
-
--- |
---
-sendDAPCmdErrorAndTerminate :: MVar DebugContextData -> BSL.ByteString -> BSL.ByteString -> String -> IO ()
-sendDAPCmdErrorAndTerminate mvarDat contLenStr jsonStr err = do
-  let msg =  L.intercalate "\n"
-          $ [  "[CRITICAL]" ++ "dap command execution failed."
-            ,  lbs2str contLenStr
-            ,  lbs2str jsonStr
-            ,  err, ""
-            ]
-  sendErrorEvent mvarDat msg
-  sendTerminateEvent mvarDat
-
-
--- |
---
-sendDAPUnserializeErrorAndTerminate :: MVar DebugContextData -> BSL.ByteString -> BSL.ByteString -> String -> IO ()
-sendDAPUnserializeErrorAndTerminate mvarDat contLenStr jsonStr err = do
-  let msg =  L.intercalate "\n"
-          $ [  "[CRITICAL]" ++ "dap command result unserialization failed."
-            ,  lbs2str contLenStr
-            ,  lbs2str jsonStr
-            ,  err, ""
-            ]
-  sendErrorEvent mvarDat msg
-  sendTerminateEvent mvarDat
-
-
--- |
---
-sendDAPResultErrorAndTerminate :: MVar DebugContextData -> BSL.ByteString -> BSL.ByteString -> String -> IO ()
-sendDAPResultErrorAndTerminate mvarDat contLenStr jsonStr err = do
-  let msg =  L.intercalate "\n"
-          $ [  "[CRITICAL]" ++ "dap command result error."
-            ,  lbs2str contLenStr
-            ,  lbs2str jsonStr
-            ,  err, ""
-            ]
-  sendErrorEvent mvarDat msg
-  sendTerminateEvent mvarDat
+          $ [ cmd ++ " request parse failed."
+          ,   errMsg
+          ,  lbs2str contLenStr
+          ,  lbs2str jsonStr
+          ]
+      res = J.errorResponse resSeq req cmd msg 
+      resStr = J.encode res
+  sendResponse mvarCtx resStr
 
 
 -- |
 --
 setBreakpointsRequestHandlerDAP :: DAPRequestHandler
-setBreakpointsRequestHandlerDAP mvarCtx contLenStr jsonStr = case J.eitherDecode jsonStr :: Either String J.SetBreakpointsRequest of
-  Left  err -> sendParseErrorAndTerminate mvarCtx contLenStr jsonStr err
-  Right req -> do
+setBreakpointsRequestHandlerDAP mvarCtx contLenStr jsonStr reqP = case J.eitherDecode jsonStr of
+  Left  err -> sendParseErrorResponse mvarCtx contLenStr jsonStr reqP err
+  Right req -> runSetBreakpoints mvarCtx req
+
+
+-- |
+--
+runSetBreakpoints :: MVar DebugContextData -> J.SetBreakpointsRequest -> IO ()
+runSetBreakpoints mvarCtx req = do
     logRequest $ show req
-    ghciProcessDebugContextData <$> (readMVar mvarCtx) >>= withProcess req
+
+    runExceptT go >>= \case
+      Left err -> do
+        resSeq <- getIncreasedResponseSequence mvarCtx
+        let res = J.errorSetBreakpointsResponse resSeq req err 
+            resStr = J.encode res
+        sendResponse mvarCtx resStr
+      Right body -> do
+        resSeq <- getIncreasedResponseSequence mvarCtx
+        let res    = J.defaultSetBreakpointsResponse resSeq req
+            resStr = J.encode res{J.bodySetBreakpointsResponse = body}
+        sendResponse mvarCtx resStr
 
   where
-    withProcess req Nothing = sendGHCiProcErrorAndTerminate mvarCtx contLenStr jsonStr (show req)
-    withProcess req (Just proc) = do
+
+    go = getProcExcept mvarCtx >>= runDap >>= readExcept >>= exceptIO
+
+    runDap proc = do
       let cmd = ":dap-set-breakpoints"
           args = showDAP $ J.argumentsSetBreakpointsRequest req
 
-      G.dapCommand proc outHdl cmd args >>= withResult req
-
-    withResult req (Left err) = sendDAPCmdErrorAndTerminate mvarCtx contLenStr jsonStr (show req ++ err)
-    withResult req (Right strDat) = withBody req $ readDAP strDat
-   
-    withBody :: J.SetBreakpointsRequest -> Either String (Either String J.SetBreakpointsResponseBody) -> IO ()
-    withBody req (Left err) = sendDAPUnserializeErrorAndTerminate mvarCtx contLenStr jsonStr (show req ++ err)
-    withBody req (Right (Left err)) = sendDAPResultErrorAndTerminate mvarCtx contLenStr jsonStr (show req ++ err)
-    withBody req (Right (Right body)) = do
-      resSeq <- getIncreasedResponseSequence mvarCtx
-      let res    = J.defaultSetBreakpointsResponse resSeq req
-          resStr = J.encode res{J.bodySetBreakpointsResponse = body}
-      sendResponse mvarCtx resStr
-
+      liftIO (G.dapCommand proc outHdl cmd args) >>= exceptIO
+      
     outHdl = sendStdoutEvent mvarCtx
 
+
+
+-- |
+--
+continueRequestHandlerDAP :: DAPRequestHandler
+continueRequestHandlerDAP mvarCtx contLenStr jsonStr reqP = case J.eitherDecode jsonStr of
+  Left  err -> sendParseErrorResponse mvarCtx contLenStr jsonStr reqP err
+  Right req -> runContinue mvarCtx req
+
+
+-- |
+--
+runContinue :: MVar DebugContextData -> J.ContinueRequest -> IO ()
+runContinue mvarCtx req = do
+    logRequest $ show req
+
+    runExceptT go >>= \case
+      Left err -> do
+        resSeq <- getIncreasedResponseSequence mvarCtx
+        let res = J.errorContinueResponse resSeq req err 
+            resStr = J.encode res
+        sendResponse mvarCtx resStr
+
+      Right body -> handleStoppeEventBody body
+
+
+  where
+
+    go = getProcExcept mvarCtx >>= runDap >>= readExcept >>= exceptIO
+
+    runDap proc = do
+      cmdArgs <- liftIO getCmdArgs
+      let cmd = ":dap-continue"
+          reqArgs= J.argumentsContinueRequest req
+          args = showDAP $ reqArgs { J.exprContinueArguments = cmdArgs }
+
+      liftIO (G.dapCommand proc outHdl cmd args) >>= exceptIO
+      
+    outHdl = sendStdoutEvent mvarCtx
+
+    getCmdArgs = do
+      isStarted <- debugStartedDebugContextData <$> readMVar mvarCtx
+      startupFunc <- startupFuncDebugContextData <$> readMVar mvarCtx
+      startupArgs <- startupArgsDebugContextData <$> readMVar mvarCtx
+
+      ctx <- takeMVar mvarCtx
+      putMVar mvarCtx ctx {
+          currentFrameIdDebugContextData = 0
+        , debugStartedDebugContextData   = True
+        }
+
+      if isStarted then return Nothing
+        else if null startupFunc
+          then return $ Just "main"
+          else return $ Just $ startupFunc ++ " " ++ startupArgs
+
+    handleStoppeEventBody body 
+      | "complete" == J.reasonStoppedEventBody body = do
+        debugM _LOG_NAME "[DAP] debugging completeed."
+        sendTerminateEvent mvarCtx
+      | otherwise = do
+        resSeq <- getIncreasedResponseSequence mvarCtx
+        let res    = J.defaultContinueResponse resSeq req
+            resStr = J.encode res
+        sendResponse mvarCtx resStr
+
+        resSeq <- getIncreasedResponseSequence mvarCtx
+        let stopEvt    = J.defaultStoppedEvent resSeq
+            stopEvtStr = J.encode stopEvt{J.bodyStoppedEvent = body}
+        sendEvent mvarCtx stopEvtStr
+
+
+-- |
+--
+stackTraceRequestHandlerDAP :: DAPRequestHandler
+stackTraceRequestHandlerDAP mvarCtx contLenStr jsonStr reqP = case J.eitherDecode jsonStr of
+  Left  err -> sendParseErrorResponse mvarCtx contLenStr jsonStr reqP err
+  Right req -> runStackTrace mvarCtx req
+
+
+-- |
+--
+runStackTrace :: MVar DebugContextData -> J.StackTraceRequest -> IO ()
+runStackTrace mvarCtx req = do
+    logRequest $ show req
+
+    runExceptT go >>= \case
+      Left err -> do
+        resSeq <- getIncreasedResponseSequence mvarCtx
+        let res = J.errorStackTraceResponse resSeq req err 
+            resStr = J.encode res
+        sendResponse mvarCtx resStr
+      Right body -> do
+        resSeq <- getIncreasedResponseSequence mvarCtx
+        let res    = J.defaultStackTraceResponse resSeq req
+            resStr = J.encode res { J.bodyStackTraceResponse = body }
+        sendResponse mvarCtx resStr
+
+  where
+
+    go = getProcExcept mvarCtx >>= runDap >>= readExcept >>= exceptIO
+
+    runDap proc = do
+      let cmd = ":dap-stacktrace"
+          args = showDAP $ J.argumentsStackTraceRequest req
+
+      liftIO (G.dapCommand proc outHdl cmd args) >>= exceptIO
+      
+    outHdl = sendStdoutEvent mvarCtx
+
+
+
+-- |
+--
+scopesRequestHandlerDAP :: DAPRequestHandler
+scopesRequestHandlerDAP mvarCtx contLenStr jsonStr reqP = case J.eitherDecode jsonStr of
+  Left  err -> sendParseErrorResponse mvarCtx contLenStr jsonStr reqP err
+  Right req -> runScopes mvarCtx req
+
+
+-- |
+--
+runScopes :: MVar DebugContextData -> J.ScopesRequest -> IO ()
+runScopes mvarCtx req = do
+    logRequest $ show req
+
+    runExceptT go >>= \case
+      Left err -> do
+        resSeq <- getIncreasedResponseSequence mvarCtx
+        let res = J.errorScopesResponse resSeq req err 
+            resStr = J.encode res
+        sendResponse mvarCtx resStr
+      Right body -> do
+        resSeq <- getIncreasedResponseSequence mvarCtx
+        let res    = J.defaultScopesResponse resSeq req
+            resStr = J.encode res { J.bodyScopesResponse = body }
+        sendResponse mvarCtx resStr
+
+  where
+
+    go = getProcExcept mvarCtx >>= runDap >>= readExcept >>= exceptIO
+
+    runDap proc = do
+      let cmd = ":dap-scopes"
+          args = showDAP $ J.argumentsScopesRequest req
+
+      liftIO (G.dapCommand proc outHdl cmd args) >>= exceptIO
+      
+    outHdl = sendStdoutEvent mvarCtx
+
+
+-- |
+--
+variablesRequestHandlerDAP :: DAPRequestHandler
+variablesRequestHandlerDAP mvarCtx contLenStr jsonStr reqP = case J.eitherDecode jsonStr of
+  Left  err -> sendParseErrorResponse mvarCtx contLenStr jsonStr reqP err
+  Right req -> runVariables mvarCtx req
+
+
+-- |
+--
+runVariables :: MVar DebugContextData -> J.VariablesRequest -> IO ()
+runVariables mvarCtx req = do
+    logRequest $ show req
+
+    runExceptT go >>= \case
+      Left err -> do
+        resSeq <- getIncreasedResponseSequence mvarCtx
+        let res = J.errorVariablesResponse resSeq req err 
+            resStr = J.encode res
+        sendResponse mvarCtx resStr
+      Right body -> do
+        resSeq <- getIncreasedResponseSequence mvarCtx
+        let res    = J.defaultVariablesResponse resSeq req
+            resStr = J.encode res { J.bodyVariablesResponse = body }
+        sendResponse mvarCtx resStr
+
+  where
+
+    go = getProcExcept mvarCtx >>= runDap >>= readExcept >>= exceptIO
+
+    runDap proc = do
+      let cmd = ":dap-variables"
+          args = showDAP $ J.argumentsVariablesRequest req
+
+      liftIO (G.dapCommand proc outHdl cmd args) >>= exceptIO
+      
+    outHdl = sendStdoutEvent mvarCtx
+
+-- |
+--
+evaluateRequestHandlerDAP :: DAPRequestHandler
+evaluateRequestHandlerDAP mvarCtx contLenStr jsonStr reqP = case J.eitherDecode jsonStr of
+  Left  err -> sendParseErrorResponse mvarCtx contLenStr jsonStr reqP err
+  Right req -> runEvaluate mvarCtx req
+
+
+-- |
+--
+runEvaluate :: MVar DebugContextData -> J.EvaluateRequest -> IO ()
+runEvaluate mvarCtx req = do
+    logRequest $ show req
+
+    runExceptT go >>= \case
+      Left err -> do
+        resSeq <- getIncreasedResponseSequence mvarCtx
+        let res = J.errorEvaluateResponse resSeq req err 
+            resStr = J.encode res
+        sendResponse mvarCtx resStr
+      Right body -> do
+        resSeq <- getIncreasedResponseSequence mvarCtx
+        let res    = J.defaultEvaluateResponse resSeq req
+            resStr = J.encode res { J.bodyEvaluateResponse = body }
+        sendResponse mvarCtx resStr
+
+  where
+
+    go = getProcExcept mvarCtx >>= runDap >>= readExcept >>= exceptIO
+
+    runDap proc = do
+      let cmd = ":dap-evaluate"
+          args = showDAP $ J.argumentsEvaluateRequest req
+
+      liftIO (G.dapCommand proc outHdl cmd args) >>= exceptIO
+      
+    outHdl = sendStdoutEvent mvarCtx
 
 -- |=====================================================================
 --  Handlers
@@ -601,135 +819,131 @@ setBreakpointsRequestHandlerDAP mvarCtx contLenStr jsonStr = case J.eitherDecode
 --
 --
 handleRequest :: MVar DebugContextData -> BSL.ByteString -> BSL.ByteString -> IO ()
-handleRequest mvarDat contLenStr jsonStr = do
-  isDAP <- haskellDapEnabledDebugContextData <$> (readMVar mvarDat)
+handleRequest mvarCtx contLenStr jsonStr = do
+  isDAP <- haskellDapEnabledDebugContextData <$> (readMVar mvarCtx)
   case J.eitherDecode jsonStr :: Either String J.Request of
-    Right (J.Request cmd) ->if isDAP && M.member cmd _SUPPORTED_DAP then handleRequestDAP mvarDat contLenStr jsonStr
+    Right (J.Request _ _ cmd) ->if isDAP && M.member cmd _SUPPORTED_DAP then handleRequestDAP mvarCtx contLenStr jsonStr
                               else handle cmd
-    Left  err -> sendParseErrorAndTerminate err "request"
+    Left  err -> sendParseErrorAndTerminateEvent err "request"
 
   where
-    sendParseErrorAndTerminate err typ = do
+    sendParseErrorAndTerminateEvent err typ = do
       let msg =  L.intercalate "\n"
               $ [  "[CRITICAL]"++"<"++typ++">"++" request parce error."
                 ,  lbs2str contLenStr
                 ,  lbs2str jsonStr
                 ,  show err, ""
                 ] ++ _ERR_MSG_URL ++ ["", ""]
-      sendErrorEvent mvarDat msg
-      sendTerminateEvent mvarDat
+      sendErrorEvent mvarCtx msg
+      sendTerminateEvent mvarCtx
 
 
     handle "initialize" = case J.eitherDecode jsonStr :: Either String J.InitializeRequest of
-      Right req -> initializeRequestHandler mvarDat req
+      Right req -> initializeRequestHandler mvarCtx req
       Left  err -> do
         let cont = L.intercalate " " $ map U.strip $ lines $ lbs2str contLenStr
             json = L.intercalate " " $ map U.strip $ lines $ lbs2str jsonStr
             er   = L.intercalate " " $ map U.strip $ lines $ show err
             msg  = L.intercalate " " $ ["[CRITICAL]<initialize> request parce error.", cont, json, er] ++ _ERR_MSG_URL
-        resSeq <- getIncreasedResponseSequence mvarDat
-        sendResponse mvarDat $ J.encode $ J.parseErrorInitializeResponse resSeq msg
-        sendParseErrorAndTerminate err "initialize"
+        resSeq <- getIncreasedResponseSequence mvarCtx
+        sendResponse mvarCtx $ J.encode $ J.parseErrorInitializeResponse resSeq msg
+        sendParseErrorAndTerminateEvent err "initialize"
 
     handle "launch" = case J.eitherDecode jsonStr :: Either String J.LaunchRequest of
-      Right req -> launchRequestHandler mvarDat req
-      Left  err -> sendParseErrorAndTerminate err "launch"
+      Right req -> launchRequestHandler mvarCtx req
+      Left  err -> sendParseErrorAndTerminateEvent err "launch"
 
     handle "configurationDone" = case J.eitherDecode jsonStr :: Either String J.ConfigurationDoneRequest of
-      Right req -> configurationDoneRequestHandler mvarDat req
-      Left  err -> sendParseErrorAndTerminate err "configurationDone" 
+      Right req -> configurationDoneRequestHandler mvarCtx req
+      Left  err -> sendParseErrorAndTerminateEvent err "configurationDone" 
 
     handle "disconnect" = case J.eitherDecode jsonStr :: Either String J.DisconnectRequest of
-      Right req -> disconnectRequestHandler mvarDat req
-      Left  err -> sendParseErrorAndTerminate err "disconnect"
+      Right req -> disconnectRequestHandler mvarCtx req
+      Left  err -> sendParseErrorAndTerminateEvent err "disconnect"
 
     handle "setBreakpoints" = case J.eitherDecode jsonStr :: Either String J.SetBreakpointsRequest of
-      Right req -> setBreakpointsRequestHandler mvarDat req
-      Left  err -> sendParseErrorAndTerminate err "setBreakpoints"
+      Right req -> setBreakpointsRequestHandler mvarCtx req
+      Left  err -> sendParseErrorAndTerminateEvent err "setBreakpoints"
 
     handle "setFunctionBreakpoints" = case J.eitherDecode jsonStr :: Either String J.SetFunctionBreakpointsRequest of
-      Right req -> setFunctionBreakpointsRequestHandler mvarDat req
-      Left  err -> sendParseErrorAndTerminate err "setFunctionBreakpoints"
+      Right req -> setFunctionBreakpointsRequestHandler mvarCtx req
+      Left  err -> sendParseErrorAndTerminateEvent err "setFunctionBreakpoints"
 
     handle "setExceptionBreakpoints" = case J.eitherDecode jsonStr :: Either String J.SetExceptionBreakpointsRequest of
-      Right req -> setExceptionBreakpointsRequestHandler mvarDat req
-      Left  err -> sendParseErrorAndTerminate err "setExceptionBreakpoints"
+      Right req -> setExceptionBreakpointsRequestHandler mvarCtx req
+      Left  err -> sendParseErrorAndTerminateEvent err "setExceptionBreakpoints"
 
     handle "continue" = case J.eitherDecode jsonStr :: Either String J.ContinueRequest of
-      Right req -> continueRequestHandler mvarDat req
-      Left  err -> sendParseErrorAndTerminate err "continue"
+      Right req -> continueRequestHandler mvarCtx req
+      Left  err -> sendParseErrorAndTerminateEvent err "continue"
 
     handle "next" = case J.eitherDecode jsonStr :: Either String J.NextRequest of
-      Right req -> nextRequestHandler mvarDat req
-      Left  err -> sendParseErrorAndTerminate err "next"
+      Right req -> nextRequestHandler mvarCtx req
+      Left  err -> sendParseErrorAndTerminateEvent err "next"
 
     handle "stepIn" = case J.eitherDecode jsonStr :: Either String J.StepInRequest of
-      Right req -> stepInRequestHandler mvarDat req
-      Left  err -> sendParseErrorAndTerminate err "stepIn"
+      Right req -> stepInRequestHandler mvarCtx req
+      Left  err -> sendParseErrorAndTerminateEvent err "stepIn"
 
     handle "stackTrace" = case J.eitherDecode jsonStr :: Either String J.StackTraceRequest of
-      Right req -> stackTraceRequestHandler mvarDat req
-      Left  err -> sendParseErrorAndTerminate err "stackTrace"
+      Right req -> stackTraceRequestHandler mvarCtx req
+      Left  err -> sendParseErrorAndTerminateEvent err "stackTrace"
 
     handle "scopes" = case J.eitherDecode jsonStr :: Either String J.ScopesRequest of
-      Right req -> haskellDapEnabledDebugContextData <$> (readMVar mvarDat) >>= \case
-        True  -> scopesRequestHandlerDAP mvarDat req
-        False -> scopesRequestHandler mvarDat req
-      Left  err -> sendParseErrorAndTerminate err "scopes"
+      Right req -> scopesRequestHandler mvarCtx req
+      Left  err -> sendParseErrorAndTerminateEvent err "scopes"
 
     handle "variables" = case J.eitherDecode jsonStr :: Either String J.VariablesRequest of
-      Right req ->  haskellDapEnabledDebugContextData <$> (readMVar mvarDat) >>= \case
-        True  -> variablesRequestHandlerDAP mvarDat req
-        False -> variablesRequestHandler mvarDat req
-      Left  err -> sendParseErrorAndTerminate err "variables"
+      Right req -> variablesRequestHandler mvarCtx req
+      Left  err -> sendParseErrorAndTerminateEvent err "variables"
 
     handle "threads" = case J.eitherDecode jsonStr :: Either String J.ThreadsRequest of
-      Right req -> threadsRequestHandler mvarDat req
-      Left  err -> sendParseErrorAndTerminate err "threads"
+      Right req -> threadsRequestHandler mvarCtx req
+      Left  err -> sendParseErrorAndTerminateEvent err "threads"
 
     handle "evaluate" = case J.eitherDecode jsonStr :: Either String J.EvaluateRequest of
-      Right req -> evaluateRequestHandler mvarDat req
-      Left  err -> sendParseErrorAndTerminate err "evaluate"
+      Right req -> evaluateRequestHandler mvarCtx req
+      Left  err -> sendParseErrorAndTerminateEvent err "evaluate"
 
     handle "completions" = case J.eitherDecode jsonStr :: Either String J.CompletionsRequest of
-      Right req -> completionsRequestHandler mvarDat req
-      Left  err -> sendParseErrorAndTerminate err "completions"
+      Right req -> completionsRequestHandler mvarCtx req
+      Left  err -> sendParseErrorAndTerminateEvent err "completions"
 
     -- |
     --  not supported.
     --
     handle "stepOut" = case J.eitherDecode jsonStr :: Either String J.StepOutRequest of
-      Left  err -> sendParseErrorAndTerminate err "stepOut"
+      Left  err -> sendParseErrorAndTerminateEvent err "stepOut"
       Right req -> do
-        resSeq <- getIncreasedResponseSequence mvarDat
+        resSeq <- getIncreasedResponseSequence mvarCtx
         let res    = J.defaultStepOutResponse resSeq req
             resStr = J.encode $ res{J.successStepOutResponse = False, J.messageStepOutResponse = "unsupported command."}
-        sendResponse mvarDat resStr
-        sendErrorEvent mvarDat "[WARN] stepOut command is not supported. ignored."
+        sendResponse mvarCtx resStr
+        sendErrorEvent mvarCtx "[WARN] stepOut command is not supported. ignored."
 
     handle "pause" = case J.eitherDecode jsonStr :: Either String J.PauseRequest of
-      Left  err -> sendParseErrorAndTerminate err "pause"
+      Left  err -> sendParseErrorAndTerminateEvent err "pause"
       Right req -> do
-        resSeq <- getIncreasedResponseSequence mvarDat
+        resSeq <- getIncreasedResponseSequence mvarCtx
         let res    = J.defaultPauseResponse resSeq req
             resStr = J.encode $ res{J.successPauseResponse = False, J.messagePauseResponse = "unsupported command."}
-        sendResponse mvarDat resStr
+        sendResponse mvarCtx resStr
  
-        sendErrorEvent  mvarDat "[WARN] pause command is not supported. ignored."
+        sendErrorEvent  mvarCtx "[WARN] pause command is not supported. ignored."
 
     handle "source" = case J.eitherDecode jsonStr :: Either String J.SourceRequest of
-      Left  err -> sendParseErrorAndTerminate err "source"
+      Left  err -> sendParseErrorAndTerminateEvent err "source"
       Right req -> do
-        resSeq <- getIncreasedResponseSequence mvarDat
+        resSeq <- getIncreasedResponseSequence mvarCtx
         let res    = J.defaultSourceResponse resSeq req
             resStr = J.encode $ res{J.successSourceResponse = False, J.messageSourceResponse = "unsupported command."}
-        sendResponse mvarDat resStr
+        sendResponse mvarCtx resStr
  
-        sendErrorEvent mvarDat "[WARN] source command is not supported. ignored."
+        sendErrorEvent mvarCtx "[WARN] source command is not supported. ignored."
 
     handle cmd = do
       let msg = L.intercalate " " ["[WARN] unknown request command. ignored.", cmd, lbs2str contLenStr, lbs2str jsonStr]
-      sendErrorEvent mvarDat msg
+      sendErrorEvent mvarCtx msg
 
 
 -- |
@@ -1071,53 +1285,6 @@ setBreakpointsInternal mvarCtx req = flip E.catches handlers $ do
                     (J.Source (Just modName) filePath Nothing Nothing)
                     lineNo (-1) lineNo (-1))
 
-    {-
-    insertInternalDAP reqBp = ghciProcessDebugContextData <$> (readMVar mvarCtx) >>= withProc reqBp
-        
-    withProc reqBp Nothing = do
-      errorM _LOG_NAME $ "[insertInternalDAP] ghci not started. " ++ show reqBp
-      return (reqBp,
-              J.Breakpoint Nothing False "ghci not started."
-                (J.Source Nothing "" Nothing Nothing)
-                (-1) (-1) (-1) (-1))
-
-    withProc reqBp@(BreakPointData _ (G.SourcePosition filePath lineNo col _ _) _ _ _ _) (Just ghciProc) =
-      G.setBreakDAP ghciProc outHdl (nzPath filePath) lineNo col >>= \case
-        Left err ->
-          return (reqBp,
-                  J.Breakpoint Nothing False err
-                    (J.Source Nothing filePath Nothing Nothing)
-                    lineNo (-1) lineNo (-1))
-        Right dats -> case readMay dats of
-          Just (Right jbp@(J.Breakpoint idBP _ _ srcBP sl sc el ec)) -> do
-            debugM _LOG_NAME $ "[insertInternalDAP] read string: " ++ dats
-            return (reqBp{ nameBreakPointData = maybe "" id (J.nameSource srcBP)
-                         , breakNoBreakPointData = idBP
-                         , srcPosBreakPointData  = (srcPosBreakPointData reqBp) {
-                             G.startLineNoSourcePosition = sl
-                           , G.startColNoSourcePosition  = sc
-                           , G.endLineNoSourcePosition   = el
-                           , G.endColNoSourcePosition    = ec
-                           }
-                        },
-                    jbp)
-          Just (Left err) -> do
-            sendErrorEvent mvarCtx $ "[insertInternalDAP] " ++ err
-            return (reqBp,
-                    J.Breakpoint Nothing False err
-                      (J.Source Nothing filePath Nothing Nothing)
-                      lineNo (-1) lineNo (-1))
-          Nothing -> do
-            sendErrorEvent mvarCtx $ "[insertInternalDAP] can not read valriables. " ++ dats
-            return (reqBp,
-                    J.Breakpoint Nothing False "dap error. can not read valriables."
-                      (J.Source Nothing filePath Nothing Nothing)
-                      lineNo (-1) lineNo (-1))
-
-    outHdl = sendStdoutEvent mvarCtx
-    -}
-
-
 -- |
 --
 setFunctionBreakpointsRequestHandler :: MVar DebugContextData -> J.SetFunctionBreakpointsRequest -> IO ()
@@ -1417,12 +1584,6 @@ stackTraceRequestHandler mvarCtx req = flip E.catches handlers $ do
       defaultFrame pos
 
     withProcess pos (Just ghciProc) = do
-      
-      isDAP <- haskellDapEnabledDebugContextData <$> (readMVar mvarCtx)
-      when isDAP $ do
-        _ <- G.historyDAP ghciProc outHdlDAP _GHCi_HISTORY_SIZE
-        return ()
-
       ctx <- takeMVar mvarCtx
       putMVar mvarCtx ctx{currentFrameIdDebugContextData = 0}
 
@@ -1453,7 +1614,6 @@ stackTraceRequestHandler mvarCtx req = flip E.catches handlers $ do
 
     outHdl = debugM _LOG_NAME
 
-    outHdlDAP = sendStdoutEvent mvarCtx
 
 -- |
 --
@@ -1479,53 +1639,6 @@ scopesRequestHandler mvarCtx req = flip E.catches handlers $ do
       sendResponse mvarCtx $ J.encode $ J.errorScopesResponse resSeq req msg 
       sendErrorEvent mvarCtx msg
 
-
--- |
---
---
-scopesRequestHandlerDAP :: MVar DebugContextData -> J.ScopesRequest -> IO ()
-scopesRequestHandlerDAP mvarCtx req = flip E.catches handlers $ do
-  logRequest $ show req
-
-  body <- ghciProcessDebugContextData <$> (readMVar mvarCtx) >>= withProcess
-
-  resSeq <- getIncreasedResponseSequence mvarCtx
-  let res =  J.defaultScopesResponse resSeq req
-      resStr = J.encode res{J.bodyScopesResponse = body}
-  sendResponse mvarCtx resStr
-
-  where
-    handlers = [ E.Handler someExcept ]
-    someExcept (e :: E.SomeException) = do
-      let msg = L.intercalate " " ["scopes request error.", show req, show e]
-      resSeq <- getIncreasedResponseSequence mvarCtx
-      sendResponse mvarCtx $ J.encode $ J.errorScopesResponse resSeq req msg 
-      sendErrorEvent mvarCtx msg
-
-    withProcess Nothing = do
-      sendErrorEvent mvarCtx "[scopesRequestHandlerDAP] ghci not started."
-      return J.ScopesBody {J.scopesScopesBody = []}
-
-    withProcess (Just ghciProc) = do
-      let args    = J.argumentsScopesRequest req
-          traceId = J.frameIdScopesArguments args
-    
-      G.scopesDAP ghciProc outHdl traceId >>= \case
-        Left err   -> do
-          sendErrorEvent mvarCtx $ show err
-          return J.ScopesBody {J.scopesScopesBody = []}
-
-        Right dats -> case readMay dats of
-          Just body -> do
-            debugM _LOG_NAME $ "[scopesRequestHandlerDAP] read string: " ++ dats
-            return body
-          Nothing   -> do
-            sendErrorEvent mvarCtx $ "[scopesRequestHandlerDAP] can not read valriables. " ++ dats
-            return J.ScopesBody {J.scopesScopesBody = []}
-
-    -- outHdl = debugM _LOG_NAME
-
-    outHdl = sendStdoutEvent mvarCtx
 
 -- |
 --
@@ -1576,52 +1689,6 @@ variablesRequestHandler mvarCtx req = flip E.catches handlers $ do
 
     outHdl = debugM _LOG_NAME
 
--- |
---
---
-variablesRequestHandlerDAP :: MVar DebugContextData -> J.VariablesRequest -> IO ()
-variablesRequestHandlerDAP mvarCtx req = flip E.catches handlers $ do
-  logRequest $ show req
-
-  body <- ghciProcessDebugContextData <$> (readMVar mvarCtx) >>= withProcess
-
-  resSeq <- getIncreasedResponseSequence mvarCtx
-  let res = J.defaultVariablesResponse resSeq req
-      resStr = J.encode $ res{J.bodyVariablesResponse = body}
-  sendResponse mvarCtx resStr
-
-  where
-    handlers = [ E.Handler someExcept ]
-    someExcept (e :: E.SomeException) = do
-      let msg = L.intercalate " " ["variables request error.", show req, show e]
-      resSeq <- getIncreasedResponseSequence mvarCtx
-      sendResponse mvarCtx $ J.encode $ J.errorVariablesResponse resSeq req msg 
-      sendErrorEvent mvarCtx msg
-
-    withProcess Nothing = do
-      sendErrorEvent mvarCtx "[variablesRequestHandler] ghci not started."
-      return J.defaultVariablesBody
-
-    withProcess (Just ghciProc) = do
-      let args = J.argumentsVariablesRequest req
-          idx  = J.variablesReferenceVariablesArguments args
-      
-      G.bindingsDAP ghciProc outHdl idx >>= \case
-        Left err   -> do
-          sendErrorEvent mvarCtx $ show err
-          return J.defaultVariablesBody
-
-        Right dats -> case readMay dats of
-          Just vals -> do
-            debugM _LOG_NAME $ "[variablesRequestHandlerDAP] read string: " ++ dats
-            return vals
-          Nothing   -> do
-            sendErrorEvent mvarCtx $ "[variablesRequestHandler] can not read valriables. " ++ dats
-            return J.defaultVariablesBody
-
-    -- outHdl = debugM _LOG_NAME
-    outHdl = sendStdoutEvent mvarCtx
-
 
 -- |
 --
@@ -1650,9 +1717,8 @@ evaluateRequestHandler :: MVar DebugContextData -> J.EvaluateRequest -> IO ()
 evaluateRequestHandler mvarCtx req = flip E.catches handlers $ do
   logRequest $ show req
 
-  isDap <- haskellDapEnabledDebugContextData <$> (readMVar mvarCtx)
   let (J.EvaluateArguments exp _ ctx) = J.argumentsEvaluateRequest req
-  ghciProcessDebugContextData <$> (readMVar mvarCtx) >>= withProcess ctx isDap exp
+  ghciProcessDebugContextData <$> (readMVar mvarCtx) >>= withProcess ctx exp
 
   where
     handlers = [ E.Handler someExcept ]
@@ -1662,9 +1728,9 @@ evaluateRequestHandler mvarCtx req = flip E.catches handlers $ do
       sendResponse mvarCtx $ J.encode $ J.errorEvaluateResponse resSeq req msg 
       sendErrorEvent mvarCtx msg
 
-    withProcess _ _ _ Nothing = sendErrorEvent mvarCtx "[evaluateRequestHandler] ghci not started."
+    withProcess _ _ Nothing = sendErrorEvent mvarCtx "[evaluateRequestHandler] ghci not started."
 
-    withProcess "watch" False exp (Just ghciProc) = G.showType ghciProc outHdl exp >>= \case
+    withProcess "watch" exp (Just ghciProc) = G.showType ghciProc outHdl exp >>= \case
       Left err -> do
         errorM _LOG_NAME $ show err
         evaluateResponse err ""
@@ -1675,33 +1741,13 @@ evaluateRequestHandler mvarCtx req = flip E.catches handlers $ do
           Right valStr -> evaluateResponse (getOnlyValue valStr) (getOnlyType typeStr)
           Left _ -> evaluateResponse "" (getOnlyType typeStr)
 
-          
-    withProcess "watch" True exp (Just ghciProc) = G.forceDAP ghciProc outHdlDAP exp >>= \case
-      Right dats ->  case readMay dats of
-        Just body -> do
-          debugM _LOG_NAME $ "[evaluateRequestHandler] read string: " ++ dats
-          resSeq <- getIncreasedResponseSequence mvarCtx
-          let res    = J.defaultEvaluateResponse resSeq req
-              resStr = J.encode res{J.bodyEvaluateResponse = body}
-          sendResponse mvarCtx resStr
-        Nothing -> do
-          sendErrorEvent mvarCtx $ "[evaluateRequestHandler] can not read valriables. " ++ dats
-          resSeq <- getIncreasedResponseSequence mvarCtx
-          let res = J.errorEvaluateResponse resSeq req $ "eval faild."
-          sendResponse mvarCtx (J.encode res)
-
-      Left e -> do
-        resSeq <- getIncreasedResponseSequence mvarCtx
-        let res = J.errorEvaluateResponse resSeq req (show e)
-        sendResponse mvarCtx (J.encode res)
-
-    withProcess "hover" _ exp (Just ghciProc) = G.showType ghciProc outHdl exp >>= \case
+    withProcess "hover" exp (Just ghciProc) = G.showType ghciProc outHdl exp >>= \case
       Left err -> do
         errorM _LOG_NAME $ show err
         evaluateResponse err ""
       Right typeStr -> evaluateResponse typeStr (getOnlyType typeStr)
 
-    withProcess _ _ exp (Just ghciProc) 
+    withProcess _ exp (Just ghciProc) 
       | null (U.strip exp) = do
          evaluateResponse "" ""
          sendStdoutEvent mvarCtx (G.promptGHCiProcess ghciProc)
@@ -1753,7 +1799,6 @@ evaluateRequestHandler mvarCtx req = flip E.catches handlers $ do
     isPermitCmd c = 0 == (length ( filter (flip U.startswith c) _NOT_PERMIT_REPL_COMMANDS))
 
     outHdl = debugM _LOG_NAME
-    outHdlDAP = sendStdoutEvent mvarCtx
 
     isFunction str = case parse isFunctionParser "isFunction" str of
       Right _ -> True
@@ -2081,13 +2126,7 @@ breakByException mvarCtx = ghciProcessDebugContextData <$> (readMVar mvarCtx) >>
       sendErrorEvent mvarCtx $ "[breakByException] can't get exception message. " ++ err
       sendTerminateEvent mvarCtx
 
-    withExceptionMsg ghciProc (Right msg) = do
-      isDAP <- haskellDapEnabledDebugContextData <$> (readMVar mvarCtx)
-      when isDAP $ do
-        _ <- G.historyDAP ghciProc outHdlDAP _GHCi_HISTORY_SIZE
-        return ()
-        
-      G.history ghciProc outHdl _GHCi_HISTORY_SIZE >>= \case
+    withExceptionMsg ghciProc (Right msg) = G.history ghciProc outHdl _GHCi_HISTORY_SIZE >>= \case
         Left err   -> do
           sendErrorEvent mvarCtx $ show err
           sendTerminateEvent mvarCtx
@@ -2108,7 +2147,6 @@ breakByException mvarCtx = ghciProcessDebugContextData <$> (readMVar mvarCtx) >>
     -- |
     --
     outHdl = debugM _LOG_NAME
-    outHdlDAP = sendStdoutEvent mvarCtx
 
 
 -- |
