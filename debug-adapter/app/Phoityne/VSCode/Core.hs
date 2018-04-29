@@ -95,7 +95,7 @@ import qualified Phoityne.VSCode.TH.SetBreakpointsArgumentsJSON as J
 import qualified Phoityne.VSCode.TH.SetBreakpointsRequestJSON as J
 import qualified Phoityne.VSCode.TH.SetBreakpointsResponseBodyJSON as J
 import qualified Phoityne.VSCode.TH.SetBreakpointsResponseJSON as J
-import qualified Phoityne.VSCode.TH.SetFunctionBreakpointsRequestArgumentsJSON as J
+import qualified Phoityne.VSCode.TH.SetFunctionBreakpointsArgumentsJSON as J
 import qualified Phoityne.VSCode.TH.SetFunctionBreakpointsRequestJSON as J
 import qualified Phoityne.VSCode.TH.SetFunctionBreakpointsResponseBodyJSON as J
 import qualified Phoityne.VSCode.TH.SetFunctionBreakpointsResponseJSON as J
@@ -242,8 +242,8 @@ _TASKS_JSON_FILE_CONTENTS = str2lbs $ U.join "\n" $
   , "        \"isDefault\": true"
   , "      },"
   , "      \"label\": \"stack build\","
-  , "       \"type\": \"shell\","
-  , "       \"command\": \"echo START_STACK_BUILD && cd ${workspaceRoot} && stack build && echo END_STACK_BUILD \""
+  , "      \"type\": \"shell\","
+  , "      \"command\": \"echo START_STACK_BUILD && cd ${workspaceRoot} && stack build && echo END_STACK_BUILD \""
   , "    },"
   , "    { "
   , "      \"group\": \"build\","
@@ -478,6 +478,20 @@ readExcept :: Read a => String -> ExceptT String IO (Either String a)
 readExcept = exceptIO . readDAP
 
 
+-- |
+--
+outHdlDAP ::  MVar DebugContextData -> String -> IO ()
+outHdlDAP mvarCtx msgs = do
+  let normMsgs = unlines $ map normalize $ lines msgs
+  sendStdoutEvent mvarCtx normMsgs
+
+  where
+    normalize msg 
+      | L.isPrefixOf "<<DAP>>" msg = "<<DAP>> ..."
+      | L.isPrefixOf ":dap-" msg = (takeWhile ((/=) '[') msg) ++ " ..."
+      | otherwise = msg
+
+
 -- |=====================================================================
 --  DAP Handlers
 --
@@ -493,11 +507,25 @@ type DAPRequestHandler = MVar DebugContextData
 _SUPPORTED_DAP :: M.Map String DAPRequestHandler
 _SUPPORTED_DAP = M.fromList [
     ("setBreakpoints", setBreakpointsRequestHandlerDAP)
+  , ("setFunctionBreakpoints",  setFunctionBreakpointsRequestHandlerDAP)
+  -- , ("setExceptionBreakpoints", setExceptionBreakpointsHandlerDAP)
   , ("continue",       continueRequestHandlerDAP)
+  , ("next",           nextRequestHandlerDAP)
+  , ("stepIn",         stepInRequestHandlerDAP)
   , ("stackTrace",     stackTraceRequestHandlerDAP)
   , ("scopes",         scopesRequestHandlerDAP)
   , ("variables",      variablesRequestHandlerDAP)
   , ("evaluate",       evaluateRequestHandlerDAP)
+  -- , ("completions",       completionsHandlerDAP)
+
+  ----------------------------------------------------------------------
+  -- phoityne-vscode handle request.
+  --
+  -- , ("initialize",          )
+  -- , ("launch",              )
+  -- , ("configurationDone",   )
+  -- , ("disconnect",          )
+  -- , ("threads",             )
   ]
 
 
@@ -580,10 +608,44 @@ runSetBreakpoints mvarCtx req = do
       let cmd = ":dap-set-breakpoints"
           args = showDAP $ J.argumentsSetBreakpointsRequest req
 
-      liftIO (G.dapCommand proc outHdl cmd args) >>= exceptIO
-      
-    outHdl = sendStdoutEvent mvarCtx
+      liftIO (G.dapCommand proc (outHdlDAP mvarCtx) cmd args) >>= exceptIO
 
+
+-- |
+--
+setFunctionBreakpointsRequestHandlerDAP :: DAPRequestHandler
+setFunctionBreakpointsRequestHandlerDAP mvarCtx contLenStr jsonStr reqP = case J.eitherDecode jsonStr of
+  Left  err -> sendParseErrorResponse mvarCtx contLenStr jsonStr reqP err
+  Right req -> runSetFunctionBreakpoints mvarCtx req
+
+
+-- |
+--
+runSetFunctionBreakpoints :: MVar DebugContextData -> J.SetFunctionBreakpointsRequest -> IO ()
+runSetFunctionBreakpoints mvarCtx req = do
+    logRequest $ show req
+
+    runExceptT go >>= \case
+      Left err -> do
+        resSeq <- getIncreasedResponseSequence mvarCtx
+        let res = J.errorSetFunctionBreakpointsResponse resSeq req err 
+            resStr = J.encode res
+        sendResponse mvarCtx resStr
+      Right body -> do
+        resSeq <- getIncreasedResponseSequence mvarCtx
+        let res    = J.defaultSetFunctionBreakpointsResponse resSeq req
+            resStr = J.encode res{J.bodySetFunctionBreakpointsResponse = body}
+        sendResponse mvarCtx resStr
+
+  where
+
+    go = getProcExcept mvarCtx >>= runDap >>= readExcept >>= exceptIO
+
+    runDap proc = do
+      let cmd = ":dap-set-function-breakpoints"
+          args = showDAP $ J.argumentsSetFunctionBreakpointsRequest req
+
+      liftIO (G.dapCommand proc (outHdlDAP mvarCtx) cmd args) >>= exceptIO
 
 
 -- |
@@ -620,9 +682,7 @@ runContinue mvarCtx req = do
           reqArgs= J.argumentsContinueRequest req
           args = showDAP $ reqArgs { J.exprContinueArguments = cmdArgs }
 
-      liftIO (G.dapCommand proc outHdl cmd args) >>= exceptIO
-      
-    outHdl = sendStdoutEvent mvarCtx
+      liftIO (G.dapCommand proc (outHdlDAP mvarCtx) cmd args) >>= exceptIO
 
     getCmdArgs = do
       isStarted <- debugStartedDebugContextData <$> readMVar mvarCtx
@@ -647,6 +707,103 @@ runContinue mvarCtx req = do
       | otherwise = do
         resSeq <- getIncreasedResponseSequence mvarCtx
         let res    = J.defaultContinueResponse resSeq req
+            resStr = J.encode res
+        sendResponse mvarCtx resStr
+
+        resSeq <- getIncreasedResponseSequence mvarCtx
+        let stopEvt    = J.defaultStoppedEvent resSeq
+            stopEvtStr = J.encode stopEvt{J.bodyStoppedEvent = body}
+        sendEvent mvarCtx stopEvtStr
+
+
+
+-- |
+--
+nextRequestHandlerDAP :: DAPRequestHandler
+nextRequestHandlerDAP mvarCtx contLenStr jsonStr reqP = case J.eitherDecode jsonStr of
+  Left  err -> sendParseErrorResponse mvarCtx contLenStr jsonStr reqP err
+  Right req -> runNext mvarCtx req
+
+
+-- |
+--
+runNext :: MVar DebugContextData -> J.NextRequest -> IO ()
+runNext mvarCtx req = do
+    logRequest $ show req
+
+    runExceptT go >>= \case
+      Left err -> do
+        resSeq <- getIncreasedResponseSequence mvarCtx
+        let res = J.errorNextResponse resSeq req err 
+            resStr = J.encode res
+        sendResponse mvarCtx resStr
+      Right body -> handleStoppeEventBody body
+
+  where
+
+    go = getProcExcept mvarCtx >>= runDap >>= readExcept >>= exceptIO
+
+    runDap proc = do
+      let cmd = ":dap-next"
+          args = showDAP $ J.argumentsNextRequest req
+
+      liftIO (G.dapCommand proc (outHdlDAP mvarCtx) cmd args) >>= exceptIO
+      
+    handleStoppeEventBody body 
+      | "complete" == J.reasonStoppedEventBody body = do
+        debugM _LOG_NAME "[DAP] debugging completeed."
+        sendTerminateEvent mvarCtx
+      | otherwise = do
+        resSeq <- getIncreasedResponseSequence mvarCtx
+        let res    = J.defaultNextResponse resSeq req
+            resStr = J.encode res
+        sendResponse mvarCtx resStr
+
+        resSeq <- getIncreasedResponseSequence mvarCtx
+        let stopEvt    = J.defaultStoppedEvent resSeq
+            stopEvtStr = J.encode stopEvt{J.bodyStoppedEvent = body}
+        sendEvent mvarCtx stopEvtStr
+
+
+-- |
+--
+stepInRequestHandlerDAP :: DAPRequestHandler
+stepInRequestHandlerDAP mvarCtx contLenStr jsonStr reqP = case J.eitherDecode jsonStr of
+  Left  err -> sendParseErrorResponse mvarCtx contLenStr jsonStr reqP err
+  Right req -> runStepIn mvarCtx req
+
+
+-- |
+--
+runStepIn :: MVar DebugContextData -> J.StepInRequest -> IO ()
+runStepIn mvarCtx req = do
+    logRequest $ show req
+
+    runExceptT go >>= \case
+      Left err -> do
+        resSeq <- getIncreasedResponseSequence mvarCtx
+        let res = J.errorStepInResponse resSeq req err 
+            resStr = J.encode res
+        sendResponse mvarCtx resStr
+      Right body -> handleStoppeEventBody body
+
+  where
+
+    go = getProcExcept mvarCtx >>= runDap >>= readExcept >>= exceptIO
+
+    runDap proc = do
+      let cmd = ":dap-step-in"
+          args = showDAP $ J.argumentsStepInRequest req
+
+      liftIO (G.dapCommand proc (outHdlDAP mvarCtx) cmd args) >>= exceptIO
+      
+    handleStoppeEventBody body 
+      | "complete" == J.reasonStoppedEventBody body = do
+        debugM _LOG_NAME "[DAP] debugging completeed."
+        sendTerminateEvent mvarCtx
+      | otherwise = do
+        resSeq <- getIncreasedResponseSequence mvarCtx
+        let res    = J.defaultStepInResponse resSeq req
             resStr = J.encode res
         sendResponse mvarCtx resStr
 
@@ -692,8 +849,7 @@ runStackTrace mvarCtx req = do
 
       liftIO (G.dapCommand proc outHdl cmd args) >>= exceptIO
       
-    outHdl = sendStdoutEvent mvarCtx
-
+    outHdl = debugM _LOG_NAME
 
 
 -- |
@@ -731,8 +887,8 @@ runScopes mvarCtx req = do
           args = showDAP $ J.argumentsScopesRequest req
 
       liftIO (G.dapCommand proc outHdl cmd args) >>= exceptIO
-      
-    outHdl = sendStdoutEvent mvarCtx
+     
+    outHdl = debugM _LOG_NAME
 
 
 -- |
@@ -771,7 +927,8 @@ runVariables mvarCtx req = do
 
       liftIO (G.dapCommand proc outHdl cmd args) >>= exceptIO
       
-    outHdl = sendStdoutEvent mvarCtx
+    outHdl = debugM _LOG_NAME
+
 
 -- |
 --
@@ -809,7 +966,8 @@ runEvaluate mvarCtx req = do
 
       liftIO (G.dapCommand proc outHdl cmd args) >>= exceptIO
       
-    outHdl = sendStdoutEvent mvarCtx
+    outHdl = debugM _LOG_NAME
+    
 
 -- |=====================================================================
 --  Handlers
@@ -1292,7 +1450,7 @@ setFunctionBreakpointsRequestHandler mvarCtx req = flip E.catches handlers $ do
   logRequest $ show req
 
   let args    = J.argumentsSetFunctionBreakpointsRequest req
-      reqBps  = J.breakpointsSetFunctionBreakpointsRequestArguments args
+      reqBps  = J.breakpointsSetFunctionBreakpointsArguments args
       bps     = map convBp reqBps
 
   delete

@@ -6,7 +6,7 @@ module Phoityne.VSCode.TH.SetFunctionBreakpointsRequestJSON where
 import Data.Aeson.TH
 
 import Phoityne.VSCode.Utility
-import Phoityne.VSCode.TH.SetFunctionBreakpointsRequestArgumentsJSON
+import Phoityne.VSCode.TH.SetFunctionBreakpointsArgumentsJSON
 
 -- |
 --   SetFunctionBreakpoints request; value of command field is "setFunctionBreakpoints".
@@ -19,7 +19,7 @@ data SetFunctionBreakpointsRequest =
     seqSetFunctionBreakpointsRequest       :: Int                                    -- Sequence number
   , typeSetFunctionBreakpointsRequest      :: String                                 -- One of "request", "response", or "event"
   , commandSetFunctionBreakpointsRequest   :: String                                 -- The command to execute
-  , argumentsSetFunctionBreakpointsRequest :: SetFunctionBreakpointsRequestArguments -- Arguments for "setFunctionBreakpoints" request.
+  , argumentsSetFunctionBreakpointsRequest :: SetFunctionBreakpointsArguments -- Arguments for "setFunctionBreakpoints" request.
   } deriving (Show, Read, Eq)
 
 $(deriveJSON defaultOptions { fieldLabelModifier = rdrop (length "SetFunctionBreakpointsRequest") } ''SetFunctionBreakpointsRequest)
