@@ -506,26 +506,26 @@ type DAPRequestHandler = MVar DebugContextData
 --
 _SUPPORTED_DAP :: M.Map String DAPRequestHandler
 _SUPPORTED_DAP = M.fromList [
-    ("setBreakpoints", setBreakpointsRequestHandlerDAP)
-  , ("setFunctionBreakpoints",  setFunctionBreakpointsRequestHandlerDAP)
-  -- , ("setExceptionBreakpoints", setExceptionBreakpointsHandlerDAP)
-  , ("continue",       continueRequestHandlerDAP)
-  , ("next",           nextRequestHandlerDAP)
-  , ("stepIn",         stepInRequestHandlerDAP)
-  , ("stackTrace",     stackTraceRequestHandlerDAP)
-  , ("scopes",         scopesRequestHandlerDAP)
-  , ("variables",      variablesRequestHandlerDAP)
-  , ("evaluate",       evaluateRequestHandlerDAP)
-  -- , ("completions",       completionsHandlerDAP)
+    ("setBreakpoints",         setBreakpointsRequestHandlerDAP)
+  , ("setFunctionBreakpoints", setFunctionBreakpointsRequestHandlerDAP)
+  , ("continue",               continueRequestHandlerDAP)
+  , ("next",                   nextRequestHandlerDAP)
+  , ("stepIn",                 stepInRequestHandlerDAP)
+  , ("stackTrace",             stackTraceRequestHandlerDAP)
+  , ("scopes",                 scopesRequestHandlerDAP)
+  , ("variables",              variablesRequestHandlerDAP)
+  , ("evaluate",               evaluateRequestHandlerDAP)
 
   ----------------------------------------------------------------------
   -- phoityne-vscode handle request.
   --
-  -- , ("initialize",          )
-  -- , ("launch",              )
-  -- , ("configurationDone",   )
-  -- , ("disconnect",          )
-  -- , ("threads",             )
+  -- , ("initialize",            )
+  -- , ("launch",                )
+  -- , ("setExceptionBreakpoints")
+  -- , ("configurationDone",     )
+  -- , ("disconnect",            )
+  -- , ("threads",               )
+  -- , ("completions",           )
   ]
 
 
@@ -961,8 +961,29 @@ runEvaluate mvarCtx req = do
     go = getProcExcept mvarCtx >>= runDap >>= readExcept >>= exceptIO
 
     runDap proc = do
-      let cmd = ":dap-evaluate"
-          args = showDAP $ J.argumentsEvaluateRequest req
+      let cmd  = ":dap-evaluate"
+          args = J.argumentsEvaluateRequest req
+          ctx  = J.contextEvaluateArguments args
+
+      if "repl" == ctx then runRepl proc cmd
+        else runOther proc cmd
+
+    runRepl proc cmd = do
+      let args  = J.argumentsEvaluateRequest req
+          exp   = J.expressionEvaluateArguments args
+          exps  = [":{"] ++ lines exp ++ [":}"]
+          args' = showDAP $ args {J.expressionEvaluateArguments = "it"} 
+          
+      mapM_ (runExceptIO proc) exps 
+
+      liftIO (G.dapCommand proc outHdl cmd args') >>= exceptIO
+
+    runExceptIO proc stmt = do
+      res <- liftIO $ G.exec proc outHdl stmt
+      exceptIO res
+
+    runOther proc cmd = do
+      let args = showDAP $ J.argumentsEvaluateRequest req
 
       liftIO (G.dapCommand proc outHdl cmd args) >>= exceptIO
       
@@ -1707,7 +1728,6 @@ stepInRequestHandler mvarCtx req = flip E.catches handlers $ do
 stackTraceRequestHandler :: MVar DebugContextData -> J.StackTraceRequest -> IO ()
 stackTraceRequestHandler mvarCtx req = flip E.catches handlers $ do
   logRequest $ show req
-
   ctx <- readMVar mvarCtx
   case debugStoppedPosDebugContextData ctx of
     Nothing -> do
