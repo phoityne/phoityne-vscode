@@ -964,31 +964,15 @@ runEvaluate mvarCtx req = do
       let cmd  = ":dap-evaluate"
           args = J.argumentsEvaluateRequest req
           ctx  = J.contextEvaluateArguments args
+          hdl  = if "repl" == ctx then outHdl else outHdl
+          dapArgs = showDAP args
 
-      if "repl" == ctx then runRepl proc cmd
-        else runOther proc cmd
+      liftIO (G.dapCommand proc hdl cmd dapArgs) >>= exceptIO
 
-    runRepl proc cmd = do
-      let args  = J.argumentsEvaluateRequest req
-          exp   = J.expressionEvaluateArguments args
-          exps  = [":{"] ++ lines exp ++ [":}"]
-          args' = showDAP $ args {J.expressionEvaluateArguments = "it"} 
-          
-      mapM_ (runExceptIO proc) exps 
+    replHdl = outHdlDAP mvarCtx
+    outHdl  = debugM _LOG_NAME
 
-      liftIO (G.dapCommand proc outHdl cmd args') >>= exceptIO
 
-    runExceptIO proc stmt = do
-      res <- liftIO $ G.exec proc outHdl stmt
-      exceptIO res
-
-    runOther proc cmd = do
-      let args = showDAP $ J.argumentsEvaluateRequest req
-
-      liftIO (G.dapCommand proc outHdl cmd args) >>= exceptIO
-      
-    outHdl = debugM _LOG_NAME
-    
 
 -- |=====================================================================
 --  Handlers
