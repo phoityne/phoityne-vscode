@@ -15,6 +15,7 @@ data SourceBreakpoint =
   , columnSourceBreakpoint       :: Maybe Int     -- An optional source column of the breakpoint.
   , conditionSourceBreakpoint    :: Maybe String  --  An optional expression for conditional breakpoints.
   , hitConditionSourceBreakpoint :: Maybe String  -- An optional expression that controls how many hits of the breakpoint are ignored. The backend is expected to interpret the expression as needed.
+  , logMessageSourceBreakpoint   :: Maybe String  -- ^If this attribute exists and is non-empty, the backend must not 'break' (stop) but log the message instead. Expressions within {} are interpolated.
   } deriving (Show, Read, Eq)
 
 $(deriveJSON defaultOptions { fieldLabelModifier = rdrop (length "SourceBreakpoint") } ''SourceBreakpoint)

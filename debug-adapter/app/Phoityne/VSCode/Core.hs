@@ -45,7 +45,6 @@ import qualified Data.Version as V
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Text.Read as R
-import Data.Word
 
 import Phoityne.VSCode.Constant
 import Phoityne.VSCode.Utility
@@ -443,16 +442,19 @@ sendRestartEvent mvarCtx = do
 
 -- |
 --
+--   haskell-dap -> phoityne
+--   Just String which read to ResponseBody.
+--
 readDAP :: Read a => String -> Either String a
-readDAP argsStr = case R.readEither argsStr :: Either String [Word8] of
-  Left err -> Left $ "read [Word8] failed. " ++ err ++ " : " ++ argsStr
-  Right bs -> case R.readEither (toStr bs) of
-    Left err -> Left $ "read response body failed. " ++ err ++ " : " ++  (toStr bs)
+readDAP argsStr = case R.readEither argsStr of
+    Left err -> Left $ "read response body failed. " ++ err ++ " : " ++  argsStr
     Right a  -> Right a 
-  where
-    toStr = T.unpack . T.decodeUtf8 . BS.pack
+
 
 -- |
+--
+--   phoityne -> haskell-dap
+--   encoding RequestArgument to [Word8] because of using ghci command line interface.
 --
 showDAP :: Show a => a -> String
 showDAP = show . BS.unpack . T.encodeUtf8 . T.pack . show
@@ -969,7 +971,7 @@ runEvaluate mvarCtx req = do
 
       liftIO (G.dapCommand proc hdl cmd dapArgs) >>= exceptIO
 
-    replHdl = outHdlDAP mvarCtx
+    --replHdl = outHdlDAP mvarCtx
     outHdl  = debugM _LOG_NAME
 
 
@@ -1132,6 +1134,7 @@ initializeRequestHandler mvarCtx req@(J.InitializeRequest seq _ _ _) = flip E.ca
            , J.supportsCompletionsRequestInitializeResponseCapabilities        = True
            , J.supportsModulesRequestInitializeResponseCapabilities            = False  -- no GUI on VSCode
            , J.additionalModuleColumnsInitializeResponseCapabilities           = []     -- no GUI on VSCode
+           , J.supportsLogPointsInitializeResponseCapabilities                 = True
            }
       res  = J.InitializeResponse resSeq "response" seq True "initialize" "" capa
 
@@ -1386,7 +1389,7 @@ setBreakpointsInternal mvarCtx req = flip E.catches handlers $ do
       sendResponse mvarCtx $ J.encode $ J.errorSetBreakpointsResponse resSeq req msg 
       sendErrorEvent mvarCtx msg
 
-    convBp cwd path startup stMod (J.SourceBreakpoint lineNo colNo cond hitCond) =
+    convBp cwd path startup stMod (J.SourceBreakpoint lineNo colNo cond hitCond _) =
       BreakPointData {
         nameBreakPointData       = src2mod cwd path startup stMod
       , srcPosBreakPointData     = G.SourcePosition path lineNo (maybe (-1) id colNo) (-1) (-1)

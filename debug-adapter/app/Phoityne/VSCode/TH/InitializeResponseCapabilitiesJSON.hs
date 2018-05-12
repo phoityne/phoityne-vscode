@@ -28,6 +28,7 @@ data InitializeResponseCapabilities =
   , supportsCompletionsRequestInitializeResponseCapabilities        :: Bool  -- The debug adapter supports the completionsRequest.
   , supportsModulesRequestInitializeResponseCapabilities            :: Bool  -- The debug adapter supports the modules request.
   , additionalModuleColumnsInitializeResponseCapabilities           :: [ColumnDescriptor] -- The set of additional module information exposed by the debug adapter.
+  , supportsLogPointsInitializeResponseCapabilities                 :: Bool  -- The debug adapter supports logpoints by interpreting the 'logMessage' attribute of the SourceBreakpoint.
   } deriving (Show, Read, Eq)
 
 $(deriveJSON defaultOptions { fieldLabelModifier = rdrop (length "InitializeResponseCapabilities") } ''InitializeResponseCapabilities)
@@ -35,5 +36,5 @@ $(deriveJSON defaultOptions { fieldLabelModifier = rdrop (length "InitializeResp
 -- |
 --
 defaultInitializeResponseCapabilities :: InitializeResponseCapabilities
-defaultInitializeResponseCapabilities = InitializeResponseCapabilities False False False False False [] False False False False False False False []
+defaultInitializeResponseCapabilities = InitializeResponseCapabilities False False False False False [] False False False False False False False [] False
 

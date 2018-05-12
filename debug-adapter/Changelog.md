@@ -1,4 +1,8 @@
 
+20180527 phoityne-vscode-0.0.24.0
+  * [UPDATE] supported haskell-dap-0.0.5.0
+
+
 20180430 phoityne-vscode-0.0.23.0
   * [UPDATE] supported haskell-dap-0.0.4.0
 
