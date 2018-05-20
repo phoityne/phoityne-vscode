@@ -35,6 +35,7 @@ module Phoityne.GHCi.Command (
   , exec
   , complete
   , dapCommand
+  , dapCommand2
   ) where
 
 import Control.Concurrent
@@ -224,16 +225,12 @@ loadFile ghci outHdl cmdArg = do
 
   return res
   where
-    endOfLoadFile acc = do
-      let curStr = takeLastMsg acc
+    endOfLoadFile curStr _ = do
       outHdl $ curStr ++ "\n"
       if| U.startswith "Ok," curStr     -> return False
         | U.startswith "Failed," curStr -> return False
         | otherwise                     -> return True
-    
-    takeLastMsg [] = ""
-    takeLastMsg xs = last xs
-
+   
     withLoadResult (Left err ) = return $ Left err
     withLoadResult (Right msges) = readTillPrompt ghci >>= \case
       Left err -> return $ Left err
@@ -305,28 +302,6 @@ setBreak ghci outHdl modName lineNo col = do
       no  <- manyTill digit (string " activated at ")
       pos <- parsePosition
       return (read no, pos)
-
-
--- |
---
-dapCommand :: GHCiProcess
-           -> OutputHandler
-           -> String
-           -> String
-           -> IO (Either ErrorData String)
-dapCommand ghci outHdl cmdStr strDat = do
-  let cmd = cmdStr ++ " " ++ strDat
-
-  lock ghci
-  res <- exec ghci outHdl cmd >>= \case
-    Left err -> return $ Left err
-    Right msg -> do
-      let msgs = filter (L.isPrefixOf _DAP_HEADER) $ lines msg
-      if 1 == length msgs then return $ Right $ drop (length _DAP_HEADER) $ head msgs
-        else return $ Left $ "[dap] error. header " ++ _DAP_HEADER ++ "not found. " ++ msg 
-  unlock ghci
-    
-  return res
 
 
 -- |
@@ -731,5 +706,66 @@ lock ghci = takeMVar (lockGHCiProcess ghci) >> return ()
 --
 unlock ::  GHCiProcess -> IO ()
 unlock ghci = putMVar (lockGHCiProcess ghci) Lock
+
+
+
+-- |
+--
+dapCommand :: GHCiProcess
+           -> OutputHandler
+           -> String
+           -> String
+           -> IO (Either ErrorData String)
+dapCommand ghci outHdl cmdStr strDat = do
+  let cmd = cmdStr ++ " " ++ strDat
+
+  lock ghci
+  res <- exec ghci outHdl cmd >>= \case
+    Left err -> return $ Left err
+    Right msg -> do
+      let msgs = filter (L.isPrefixOf _DAP_HEADER) $ lines msg
+      if 1 == length msgs then return $ Right $ drop (length _DAP_HEADER) $ head msgs
+        else return $ Left $ "[dap] error. header " ++ _DAP_HEADER ++ "not found. " ++ msg 
+  unlock ghci
+    
+  return res
+
+
+-- |
+--
+dapCommand2 :: GHCiProcess
+           -> OutputHandler
+           -> String
+           -> String
+           -> IO (Either ErrorData [String])
+dapCommand2 ghci outHdl cmdStr strDat = do
+  let cmd = cmdStr ++ " " ++ strDat
+
+  outHdl $ cmd ++ "\n"
+
+  lock ghci
+  res <- writeLine ghci cmd >>= \case
+    Left err -> return $ Left err
+    Right _ -> readLineWhileIO ghci proc >>= witResult
+  unlock ghci
+
+  return res
+  where
+    proc curStr _ = do
+      outHdl curStr
+      return $ curStr /= _DAP_CMD_END
+   
+    witResult (Left err ) = return $ Left err
+    witResult (Right msges) = readTillPrompt ghci >>= \case
+      Left err -> return $ Left err
+      Right prmt -> do
+        outHdl prmt
+        return . Right $ msges
+
+
+-- |
+--
+_DAP_CMD_END :: String
+_DAP_CMD_END = "<<DAP_CMD_END>>"
 
 

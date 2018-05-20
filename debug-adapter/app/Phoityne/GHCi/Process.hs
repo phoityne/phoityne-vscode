@@ -223,7 +223,7 @@ readLineWhile (GHCiProcess _ ghciOut _ _ _ _ _) condProc = flip E.catches handle
 -- |
 --  read line from ghci.
 --
-readLineWhileIO :: GHCiProcess -> ([String] -> IO Bool) -> IO (Either ErrorData [String])
+readLineWhileIO :: GHCiProcess -> (String -> [String] -> IO Bool) -> IO (Either ErrorData [String])
 readLineWhileIO (GHCiProcess _ ghciOut _ _ _ _ _) condProc = flip E.catches handlers $ S.hIsOpen ghciOut >>= \case
   True  -> go []
   False -> return . Left $ "handle not open."
@@ -233,7 +233,7 @@ readLineWhileIO (GHCiProcess _ ghciOut _ _ _ _ _) condProc = flip E.catches hand
       False -> do
         l <- S.hGetLine ghciOut
         let acc' = acc ++ [l]
-        condProc acc' >>= \case
+        condProc l acc' >>= \case
           True  -> go acc'
           False -> return . Right $ acc'
 
