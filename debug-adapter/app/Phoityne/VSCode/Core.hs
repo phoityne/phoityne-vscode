@@ -442,17 +442,6 @@ sendRestartEvent mvarCtx = do
 
 -- |
 --
---   haskell-dap -> phoityne
---   Just String which read to ResponseBody.
---
-readDAP :: Read a => String -> Either String a
-readDAP argsStr = case R.readEither argsStr of
-    Left err -> Left $ "read response body failed. " ++ err ++ " : " ++  argsStr
-    Right a  -> Right a 
-
-
--- |
---
 --   phoityne -> haskell-dap
 --   encoding RequestArgument to [Word8] because of using ghci command line interface.
 --
@@ -473,25 +462,6 @@ getProcExcept mvarCtx = do
 exceptIO :: Either e a -> ExceptT e IO a
 exceptIO (Left err) = throwError err
 exceptIO (Right a)  = return a
-
--- |
---
-readExcept :: Read a => String -> ExceptT String IO (Either String a)
-readExcept = exceptIO . readDAP
-
-
--- |
---
-outHdlDAP ::  MVar DebugContextData -> String -> IO ()
-outHdlDAP mvarCtx msgs = do
-  let normMsgs = unlines $ map normalize $ lines msgs
-  sendStdoutEvent mvarCtx normMsgs
-
-  where
-    normalize msg 
-      | L.isPrefixOf "<<DAP>>" msg = "<<DAP>> ..."
-      | L.isPrefixOf ":dap-" msg = (takeWhile ((/=) '[') msg) ++ " ..."
-      | otherwise = msg
 
 
 -- |=====================================================================
@@ -590,6 +560,27 @@ sendParseErrorResponse mvarCtx contLenStr jsonStr (J.Request req _ cmd) errMsg =
 
 -- |
 --
+outputEventHandler :: MVar DebugContextData -> String -> IO ()
+outputEventHandler mvarCtx str = case R.readEither str of
+  Left err -> do
+    let msg = "[DAP][OUTPUT] read body failed. " ++ err ++ " : " ++ str
+    errorM _LOG_NAME msg
+    sendErrorEvent mvarCtx msg
+
+  Right (Left err) -> do
+    let msg = "[DAP][OUTPUT] output event error. " ++ err ++ " : " ++ str
+    errorM _LOG_NAME msg
+    sendErrorEvent mvarCtx msg
+
+  Right (Right body) -> do
+    resSeq <- getIncreasedResponseSequence mvarCtx
+    let outEvt    = J.defaultOutputEvent resSeq
+        outEvtStr = J.encode outEvt{J.bodyOutputEvent = body}
+    sendEvent mvarCtx outEvtStr
+
+    
+-- |
+--
 setBreakpointsRequestHandlerDAP :: DAPRequestHandler
 setBreakpointsRequestHandlerDAP mvarCtx contLenStr jsonStr reqP = case J.eitherDecode jsonStr of
   Left  err -> sendParseErrorResponse mvarCtx contLenStr jsonStr reqP err
@@ -603,12 +594,8 @@ runSetBreakpoints mvarCtx req = do
     logRequest $ show req
 
     runExceptT go >>= \case
-      Right _ -> return ()
-      Left err -> do
-        resSeq <- getIncreasedResponseSequence mvarCtx
-        let res = J.errorSetBreakpointsResponse resSeq req err 
-            resStr = J.encode res
-        sendResponse mvarCtx resStr
+      Right _  -> return ()
+      Left err -> sendErrRes mvarCtx req err
 
   where
 
@@ -625,28 +612,25 @@ runSetBreakpoints mvarCtx req = do
     outHdl :: MVar DebugContextData -> J.SetBreakpointsRequest -> String -> IO ()
     outHdl mvarCtx req str = do
       
-      infoM _LOG_NAME $ "[DAP][GHCi] " ++ str
+      infoM _LOG_NAME $ "[GHCi][STDOUT] " ++ str
 
-      if | U.startswith _DAP_HEADER str -> resDAP mvarCtx req $ drop (length _DAP_HEADER) str
+      if | U.startswith _DAP_HEADER str ->
+           dapHdl mvarCtx req $ drop (length _DAP_HEADER) str
+         | U.startswith _DAP_HEADER_OUTPUT_EVENT str ->
+           outputEventHandler mvarCtx $ drop (length _DAP_HEADER_OUTPUT_EVENT) str
          | otherwise  -> return ()
 
     -- |
     --
-    resDAP :: MVar DebugContextData -> J.SetBreakpointsRequest -> String -> IO ()
-    resDAP mvarCtx req str = case R.readEither str of
+    dapHdl :: MVar DebugContextData -> J.SetBreakpointsRequest -> String -> IO ()
+    dapHdl mvarCtx req str = case R.readEither str of
       Left err -> do
         errorM _LOG_NAME $ "read response body failed. " ++ err ++ " : " ++ str
-        resSeq <- getIncreasedResponseSequence mvarCtx
-        let res = J.errorSetBreakpointsResponse resSeq req err 
-            resStr = J.encode res
-        sendResponse mvarCtx resStr
+        sendErrRes  mvarCtx req err
 
       Right (Left err) -> do
         errorM _LOG_NAME $ "setBreakpointRequest failed. " ++ err ++ " : " ++ str
-        resSeq <- getIncreasedResponseSequence mvarCtx
-        let res = J.errorSetBreakpointsResponse resSeq req err 
-            resStr = J.encode res
-        sendResponse mvarCtx resStr
+        sendErrRes  mvarCtx req err
 
       Right (Right body) -> do
         resSeq <- getIncreasedResponseSequence mvarCtx
@@ -654,6 +638,14 @@ runSetBreakpoints mvarCtx req = do
             resStr = J.encode res{J.bodySetBreakpointsResponse = body}
         sendResponse mvarCtx resStr
 
+    -- |
+    --
+    sendErrRes :: MVar DebugContextData -> J.SetBreakpointsRequest -> String -> IO ()
+    sendErrRes mvarCtx req err = do
+      resSeq <- getIncreasedResponseSequence mvarCtx
+      let res = J.errorSetBreakpointsResponse resSeq req err 
+          resStr = J.encode res
+      sendResponse mvarCtx resStr
 
 -- |
 --
@@ -670,12 +662,8 @@ runSetFunctionBreakpoints mvarCtx req = do
     logRequest $ show req
 
     runExceptT go >>= \case
-      Right _ -> return ()
-      Left err -> do
-        resSeq <- getIncreasedResponseSequence mvarCtx
-        let res = J.errorSetFunctionBreakpointsResponse resSeq req err 
-            resStr = J.encode res
-        sendResponse mvarCtx resStr
+      Right _  -> return ()
+      Left err -> sendErrRes mvarCtx req err
 
   where
 
@@ -692,34 +680,40 @@ runSetFunctionBreakpoints mvarCtx req = do
     outHdl :: MVar DebugContextData -> J.SetFunctionBreakpointsRequest -> String -> IO ()
     outHdl mvarCtx req str = do
       
-      infoM _LOG_NAME $ "[DAP][GHCi] " ++ str
+      infoM _LOG_NAME $ "[GHCi][STDOUT] " ++ str
 
-      if | U.startswith _DAP_HEADER str -> resDAP mvarCtx req $ drop (length _DAP_HEADER) str
+      if | U.startswith _DAP_HEADER str ->
+           dapHdl mvarCtx req $ drop (length _DAP_HEADER) str
+         | U.startswith _DAP_HEADER_OUTPUT_EVENT str ->
+           outputEventHandler mvarCtx $ drop (length _DAP_HEADER_OUTPUT_EVENT) str
          | otherwise  -> return ()
 
     -- |
     --
-    resDAP :: MVar DebugContextData -> J.SetFunctionBreakpointsRequest -> String -> IO ()
-    resDAP mvarCtx req str = case R.readEither str of
+    dapHdl :: MVar DebugContextData -> J.SetFunctionBreakpointsRequest -> String -> IO ()
+    dapHdl mvarCtx req str = case R.readEither str of
       Left err -> do
         errorM _LOG_NAME $ "read response body failed. " ++ err ++ " : " ++ str
-        resSeq <- getIncreasedResponseSequence mvarCtx
-        let res = J.errorSetFunctionBreakpointsResponse resSeq req err 
-            resStr = J.encode res
-        sendResponse mvarCtx resStr
+        sendErrRes  mvarCtx req err
 
       Right (Left err) -> do
-        errorM _LOG_NAME $ "setBreakpointRequest failed. " ++ err ++ " : " ++ str
-        resSeq <- getIncreasedResponseSequence mvarCtx
-        let res = J.errorSetFunctionBreakpointsResponse resSeq req err 
-            resStr = J.encode res
-        sendResponse mvarCtx resStr
+        errorM _LOG_NAME $ "setFunctionBreakpointRequest failed. " ++ err ++ " : " ++ str
+        sendErrRes  mvarCtx req err
 
       Right (Right body) -> do
         resSeq <- getIncreasedResponseSequence mvarCtx
         let res    = J.defaultSetFunctionBreakpointsResponse resSeq req
             resStr = J.encode res{J.bodySetFunctionBreakpointsResponse = body}
         sendResponse mvarCtx resStr
+
+    -- |
+    --
+    sendErrRes :: MVar DebugContextData -> J.SetFunctionBreakpointsRequest -> String -> IO ()
+    sendErrRes mvarCtx req err = do
+      resSeq <- getIncreasedResponseSequence mvarCtx
+      let res = J.errorSetFunctionBreakpointsResponse resSeq req err 
+          resStr = J.encode res
+      sendResponse mvarCtx resStr
 
 
 -- |
@@ -737,12 +731,8 @@ runContinue mvarCtx req = do
     logRequest $ show req
 
     runExceptT go >>= \case
-      Right _ -> return ()
-      Left err -> do
-        resSeq <- getIncreasedResponseSequence mvarCtx
-        let res = J.errorContinueResponse resSeq req err 
-            resStr = J.encode res
-        sendResponse mvarCtx resStr
+      Right _  -> return ()
+      Left err -> sendErrRes mvarCtx req err
 
   where
 
@@ -763,9 +753,9 @@ runContinue mvarCtx req = do
     -- |
     --
     getCmdArgs = do
-      isStarted <- debugStartedDebugContextData <$> readMVar mvarCtx
-      startupFunc <- startupFuncDebugContextData <$> readMVar mvarCtx
-      startupArgs <- startupArgsDebugContextData <$> readMVar mvarCtx
+      isStarted   <- debugStartedDebugContextData <$> readMVar mvarCtx
+      startupFunc <- startupFuncDebugContextData  <$> readMVar mvarCtx
+      startupArgs <- startupArgsDebugContextData  <$> readMVar mvarCtx
 
       ctx <- takeMVar mvarCtx
       putMVar mvarCtx ctx {
@@ -783,31 +773,25 @@ runContinue mvarCtx req = do
     outHdl :: MVar DebugContextData -> J.ContinueRequest -> String -> IO ()
     outHdl mvarCtx req str = do
       
-      infoM _LOG_NAME $ "[DAP][GHCi] " ++ str
+      infoM _LOG_NAME $ "[GHCi][STDOUT] " ++ str
 
       if | U.startswith _DAP_HEADER str ->
-           resDAP mvarCtx req $ drop (length _DAP_HEADER) str
+           dapHdl mvarCtx req $ drop (length _DAP_HEADER) str
          | U.startswith _DAP_HEADER_OUTPUT_EVENT str ->
            outputEventHandler mvarCtx $ drop (length _DAP_HEADER_OUTPUT_EVENT) str
          | otherwise  -> return ()
 
     -- |
     --
-    resDAP :: MVar DebugContextData -> J.ContinueRequest -> String -> IO ()
-    resDAP mvarCtx req str = case R.readEither str of
+    dapHdl :: MVar DebugContextData -> J.ContinueRequest -> String -> IO ()
+    dapHdl mvarCtx req str = case R.readEither str of
       Left err -> do
         errorM _LOG_NAME $ "read response body failed. " ++ err ++ " : " ++ str
-        resSeq <- getIncreasedResponseSequence mvarCtx
-        let res = J.errorContinueResponse resSeq req err 
-            resStr = J.encode res
-        sendResponse mvarCtx resStr
+        sendErrRes  mvarCtx req err
 
       Right (Left err) -> do
-        errorM _LOG_NAME $ "setBreakpointRequest failed. " ++ err ++ " : " ++ str
-        resSeq <- getIncreasedResponseSequence mvarCtx
-        let res = J.errorContinueResponse resSeq req err 
-            resStr = J.encode res
-        sendResponse mvarCtx resStr
+        errorM _LOG_NAME $ "continueRequest failed. " ++ err ++ " : " ++ str
+        sendErrRes  mvarCtx req err
 
       Right (Right body) -> handleStoppeEventBody body
 
@@ -828,26 +812,14 @@ runContinue mvarCtx req = do
             stopEvtStr = J.encode stopEvt{J.bodyStoppedEvent = body}
         sendEvent mvarCtx stopEvtStr
 
-
--- |
---
-outputEventHandler :: MVar DebugContextData -> String -> IO ()
-outputEventHandler mvarCtx str = case R.readEither str of
-  Left err -> do
-    let msg = "[DAP][OUTPUT] read body failed. " ++ err ++ " : " ++ str
-    errorM _LOG_NAME msg
-    sendErrorEvent mvarCtx msg
-
-  Right (Left err) -> do
-    let msg = "[DAP][OUTPUT] output event error. " ++ err ++ " : " ++ str
-    errorM _LOG_NAME msg
-    sendErrorEvent mvarCtx msg
-
-  Right (Right body) -> do
-    resSeq <- getIncreasedResponseSequence mvarCtx
-    let outEvt    = J.defaultOutputEvent resSeq
-        outEvtStr = J.encode outEvt{J.bodyOutputEvent = body}
-    sendEvent mvarCtx outEvtStr
+    -- |
+    --
+    sendErrRes :: MVar DebugContextData -> J.ContinueRequest -> String -> IO ()
+    sendErrRes mvarCtx req err = do
+      resSeq <- getIncreasedResponseSequence mvarCtx
+      let res = J.errorContinueResponse resSeq req err 
+          resStr = J.encode res
+      sendResponse mvarCtx resStr
 
 
 -- |
@@ -865,23 +837,47 @@ runNext mvarCtx req = do
     logRequest $ show req
 
     runExceptT go >>= \case
-      Left err -> do
-        resSeq <- getIncreasedResponseSequence mvarCtx
-        let res = J.errorNextResponse resSeq req err 
-            resStr = J.encode res
-        sendResponse mvarCtx resStr
-      Right body -> handleStoppeEventBody body
+      Right _ -> return ()
+      Left err -> sendErrRes mvarCtx req err
 
   where
 
-    go = getProcExcept mvarCtx >>= runDap >>= readExcept >>= exceptIO
+    go = getProcExcept mvarCtx >>= runDap
 
     runDap proc = do
       let cmd = ":dap-next"
           args = showDAP $ J.argumentsNextRequest req
 
-      liftIO (G.dapCommand proc (outHdlDAP mvarCtx) cmd args) >>= exceptIO
+      liftIO (G.dapCommand2 proc (outHdl mvarCtx req) cmd args) >>= exceptIO
+
+    -- |
+    --
+    outHdl :: MVar DebugContextData -> J.NextRequest -> String -> IO ()
+    outHdl mvarCtx req str = do
       
+      infoM _LOG_NAME $ "[GHCi][STDOUT] " ++ str
+
+      if | U.startswith _DAP_HEADER str ->
+           dapHdl mvarCtx req $ drop (length _DAP_HEADER) str
+         | U.startswith _DAP_HEADER_OUTPUT_EVENT str ->
+           outputEventHandler mvarCtx $ drop (length _DAP_HEADER_OUTPUT_EVENT) str
+         | otherwise  -> return ()
+
+    -- |
+    --
+    dapHdl :: MVar DebugContextData -> J.NextRequest -> String -> IO ()
+    dapHdl mvarCtx req str = case R.readEither str of
+      Left err -> do
+        errorM _LOG_NAME $ "read response body failed. " ++ err ++ " : " ++ str
+        sendErrRes mvarCtx req err
+
+      Right (Left err) -> do
+        errorM _LOG_NAME $ "nextRequest failed. " ++ err ++ " : " ++ str
+        sendErrRes mvarCtx req err
+
+      Right (Right body) -> handleStoppeEventBody body
+
+
     handleStoppeEventBody body 
       | "complete" == J.reasonStoppedEventBody body = do
         debugM _LOG_NAME "[DAP] debugging completeed."
@@ -896,6 +892,15 @@ runNext mvarCtx req = do
         let stopEvt    = J.defaultStoppedEvent resSeq
             stopEvtStr = J.encode stopEvt{J.bodyStoppedEvent = body}
         sendEvent mvarCtx stopEvtStr
+
+    -- |
+    --
+    sendErrRes :: MVar DebugContextData -> J.NextRequest -> String -> IO ()
+    sendErrRes mvarCtx req err = do
+      resSeq <- getIncreasedResponseSequence mvarCtx
+      let res = J.errorNextResponse resSeq req err 
+          resStr = J.encode res
+      sendResponse mvarCtx resStr
 
 
 -- |
@@ -913,23 +918,47 @@ runStepIn mvarCtx req = do
     logRequest $ show req
 
     runExceptT go >>= \case
-      Left err -> do
-        resSeq <- getIncreasedResponseSequence mvarCtx
-        let res = J.errorStepInResponse resSeq req err 
-            resStr = J.encode res
-        sendResponse mvarCtx resStr
-      Right body -> handleStoppeEventBody body
+      Right _  -> return ()
+      Left err -> sendErrRes mvarCtx req err
 
   where
 
-    go = getProcExcept mvarCtx >>= runDap >>= readExcept >>= exceptIO
+    go = getProcExcept mvarCtx >>= runDap
 
     runDap proc = do
       let cmd = ":dap-step-in"
           args = showDAP $ J.argumentsStepInRequest req
 
-      liftIO (G.dapCommand proc (outHdlDAP mvarCtx) cmd args) >>= exceptIO
+      liftIO (G.dapCommand2 proc (outHdl mvarCtx req) cmd args) >>= exceptIO
       
+    -- |
+    --
+    outHdl :: MVar DebugContextData -> J.StepInRequest -> String -> IO ()
+    outHdl mvarCtx req str = do
+      
+      infoM _LOG_NAME $ "[GHCi][STDOUT] " ++ str
+
+      if | U.startswith _DAP_HEADER str ->
+           dapHdl mvarCtx req $ drop (length _DAP_HEADER) str
+         | U.startswith _DAP_HEADER_OUTPUT_EVENT str ->
+           outputEventHandler mvarCtx $ drop (length _DAP_HEADER_OUTPUT_EVENT) str
+         | otherwise  -> return ()
+
+    -- |
+    --
+    dapHdl :: MVar DebugContextData -> J.StepInRequest -> String -> IO ()
+    dapHdl mvarCtx req str = case R.readEither str of
+      Left err -> do
+        errorM _LOG_NAME $ "read response body failed. " ++ err ++ " : " ++ str
+        sendErrRes  mvarCtx req err
+
+      Right (Left err) -> do
+        errorM _LOG_NAME $ "continueRequest failed. " ++ err ++ " : " ++ str
+        sendErrRes  mvarCtx req err
+
+      Right (Right body) -> handleStoppeEventBody body
+
+
     handleStoppeEventBody body 
       | "complete" == J.reasonStoppedEventBody body = do
         debugM _LOG_NAME "[DAP] debugging completeed."
@@ -945,6 +974,14 @@ runStepIn mvarCtx req = do
             stopEvtStr = J.encode stopEvt{J.bodyStoppedEvent = body}
         sendEvent mvarCtx stopEvtStr
 
+    -- |
+    --
+    sendErrRes :: MVar DebugContextData -> J.StepInRequest -> String -> IO ()
+    sendErrRes mvarCtx req err = do
+      resSeq <- getIncreasedResponseSequence mvarCtx
+      let res = J.errorStepInResponse resSeq req err 
+          resStr = J.encode res
+      sendResponse mvarCtx resStr
 
 -- |
 --
@@ -961,29 +998,58 @@ runStackTrace mvarCtx req = do
     logRequest $ show req
 
     runExceptT go >>= \case
-      Left err -> do
-        resSeq <- getIncreasedResponseSequence mvarCtx
-        let res = J.errorStackTraceResponse resSeq req err 
-            resStr = J.encode res
-        sendResponse mvarCtx resStr
-      Right body -> do
-        resSeq <- getIncreasedResponseSequence mvarCtx
-        let res    = J.defaultStackTraceResponse resSeq req
-            resStr = J.encode res { J.bodyStackTraceResponse = body }
-        sendResponse mvarCtx resStr
+      Right _  -> return ()
+      Left err -> sendErrRes mvarCtx req err
 
   where
 
-    go = getProcExcept mvarCtx >>= runDap >>= readExcept >>= exceptIO
+    go = getProcExcept mvarCtx >>= runDap
 
     runDap proc = do
       let cmd = ":dap-stacktrace"
           args = showDAP $ J.argumentsStackTraceRequest req
 
-      liftIO (G.dapCommand proc outHdl cmd args) >>= exceptIO
+      liftIO (G.dapCommand2 proc  (outHdl mvarCtx req)  cmd args) >>= exceptIO
       
-    outHdl = debugM _LOG_NAME
+    -- |
+    --
+    outHdl :: MVar DebugContextData -> J.StackTraceRequest -> String -> IO ()
+    outHdl mvarCtx req str = do
+      
+      infoM _LOG_NAME $ "[GHCi][STDOUT] " ++ str
 
+      if | U.startswith _DAP_HEADER str ->
+           dapHdl mvarCtx req $ drop (length _DAP_HEADER) str
+         | U.startswith _DAP_HEADER_OUTPUT_EVENT str ->
+           outputEventHandler mvarCtx $ drop (length _DAP_HEADER_OUTPUT_EVENT) str
+         | otherwise  -> return ()
+
+    -- |
+    --
+    dapHdl :: MVar DebugContextData -> J.StackTraceRequest -> String -> IO ()
+    dapHdl mvarCtx req str = case R.readEither str of
+      Left err -> do
+        errorM _LOG_NAME $ "read response body failed. " ++ err ++ " : " ++ str
+        sendErrRes  mvarCtx req err
+
+      Right (Left err) -> do
+        errorM _LOG_NAME $ "stackTraceRequestHandler failed. " ++ err ++ " : " ++ str
+        sendErrRes  mvarCtx req err
+
+      Right (Right body) -> do
+        resSeq <- getIncreasedResponseSequence mvarCtx
+        let res    = J.defaultStackTraceResponse resSeq req
+            resStr = J.encode res { J.bodyStackTraceResponse = body }
+        sendResponse mvarCtx resStr
+
+    -- |
+    --
+    sendErrRes :: MVar DebugContextData -> J.StackTraceRequest -> String -> IO ()
+    sendErrRes mvarCtx req err = do
+      resSeq <- getIncreasedResponseSequence mvarCtx
+      let res = J.errorStackTraceResponse resSeq req err 
+          resStr = J.encode res
+      sendResponse mvarCtx resStr
 
 -- |
 --
@@ -1000,29 +1066,59 @@ runScopes mvarCtx req = do
     logRequest $ show req
 
     runExceptT go >>= \case
-      Left err -> do
-        resSeq <- getIncreasedResponseSequence mvarCtx
-        let res = J.errorScopesResponse resSeq req err 
-            resStr = J.encode res
-        sendResponse mvarCtx resStr
-      Right body -> do
-        resSeq <- getIncreasedResponseSequence mvarCtx
-        let res    = J.defaultScopesResponse resSeq req
-            resStr = J.encode res { J.bodyScopesResponse = body }
-        sendResponse mvarCtx resStr
+      Right _  -> return ()
+      Left err -> sendErrRes mvarCtx req err
 
-  where
+    where
 
-    go = getProcExcept mvarCtx >>= runDap >>= readExcept >>= exceptIO
+    go = getProcExcept mvarCtx >>= runDap
 
     runDap proc = do
       let cmd = ":dap-scopes"
           args = showDAP $ J.argumentsScopesRequest req
 
-      liftIO (G.dapCommand proc outHdl cmd args) >>= exceptIO
+      liftIO (G.dapCommand2 proc (outHdl mvarCtx req) cmd args) >>= exceptIO
      
-    outHdl = debugM _LOG_NAME
 
+    -- |
+    --
+    outHdl :: MVar DebugContextData -> J.ScopesRequest -> String -> IO ()
+    outHdl mvarCtx req str = do
+      
+      infoM _LOG_NAME $ "[GHCi][STDOUT] " ++ str
+
+      if | U.startswith _DAP_HEADER str ->
+           dapHdl mvarCtx req $ drop (length _DAP_HEADER) str
+         | U.startswith _DAP_HEADER_OUTPUT_EVENT str ->
+           outputEventHandler mvarCtx $ drop (length _DAP_HEADER_OUTPUT_EVENT) str
+         | otherwise  -> return ()
+
+    -- |
+    --
+    dapHdl :: MVar DebugContextData -> J.ScopesRequest -> String -> IO ()
+    dapHdl mvarCtx req str = case R.readEither str of
+      Left err -> do
+        errorM _LOG_NAME $ "read response body failed. " ++ err ++ " : " ++ str
+        sendErrRes  mvarCtx req err
+
+      Right (Left err) -> do
+        errorM _LOG_NAME $ "scopesRequestHandler failed. " ++ err ++ " : " ++ str
+        sendErrRes  mvarCtx req err
+
+      Right (Right body) -> do
+        resSeq <- getIncreasedResponseSequence mvarCtx
+        let res    = J.defaultScopesResponse resSeq req
+            resStr = J.encode res { J.bodyScopesResponse = body }
+        sendResponse mvarCtx resStr
+
+    -- |
+    --
+    sendErrRes :: MVar DebugContextData -> J.ScopesRequest -> String -> IO ()
+    sendErrRes mvarCtx req err = do
+      resSeq <- getIncreasedResponseSequence mvarCtx
+      let res = J.errorScopesResponse resSeq req err 
+          resStr = J.encode res
+      sendResponse mvarCtx resStr
 
 -- |
 --
@@ -1039,28 +1135,58 @@ runVariables mvarCtx req = do
     logRequest $ show req
 
     runExceptT go >>= \case
-      Left err -> do
-        resSeq <- getIncreasedResponseSequence mvarCtx
-        let res = J.errorVariablesResponse resSeq req err 
-            resStr = J.encode res
-        sendResponse mvarCtx resStr
-      Right body -> do
-        resSeq <- getIncreasedResponseSequence mvarCtx
-        let res    = J.defaultVariablesResponse resSeq req
-            resStr = J.encode res { J.bodyVariablesResponse = body }
-        sendResponse mvarCtx resStr
+      Right _  -> return ()
+      Left err -> sendErrRes mvarCtx req err
 
   where
 
-    go = getProcExcept mvarCtx >>= runDap >>= readExcept >>= exceptIO
+    go = getProcExcept mvarCtx >>= runDap
 
     runDap proc = do
       let cmd = ":dap-variables"
           args = showDAP $ J.argumentsVariablesRequest req
 
-      liftIO (G.dapCommand proc outHdl cmd args) >>= exceptIO
+      liftIO (G.dapCommand2 proc (outHdl mvarCtx req) cmd args) >>= exceptIO
       
-    outHdl = debugM _LOG_NAME
+    -- |
+    --
+    outHdl :: MVar DebugContextData -> J.VariablesRequest -> String -> IO ()
+    outHdl mvarCtx req str = do
+      
+      infoM _LOG_NAME $ "[GHCi][STDOUT] " ++ str
+
+      if | U.startswith _DAP_HEADER str ->
+           dapHdl mvarCtx req $ drop (length _DAP_HEADER) str
+         | U.startswith _DAP_HEADER_OUTPUT_EVENT str ->
+           outputEventHandler mvarCtx $ drop (length _DAP_HEADER_OUTPUT_EVENT) str
+         | otherwise  -> return ()
+
+    -- |
+    --
+    dapHdl :: MVar DebugContextData -> J.VariablesRequest -> String -> IO ()
+    dapHdl mvarCtx req str = case R.readEither str of
+      Left err -> do
+        errorM _LOG_NAME $ "read response body failed. " ++ err ++ " : " ++ str
+        sendErrRes  mvarCtx req err
+
+      Right (Left err) -> do
+        errorM _LOG_NAME $ "variablesRequestHandler failed. " ++ err ++ " : " ++ str
+        sendErrRes  mvarCtx req err
+
+      Right (Right body) -> do
+        resSeq <- getIncreasedResponseSequence mvarCtx
+        let res    = J.defaultVariablesResponse resSeq req
+            resStr = J.encode res { J.bodyVariablesResponse = body }
+        sendResponse mvarCtx resStr
+
+    -- |
+    --
+    sendErrRes :: MVar DebugContextData -> J.VariablesRequest -> String -> IO ()
+    sendErrRes mvarCtx req err = do
+      resSeq <- getIncreasedResponseSequence mvarCtx
+      let res = J.errorVariablesResponse resSeq req err 
+          resStr = J.encode res
+      sendResponse mvarCtx resStr
 
 
 -- |
@@ -1078,33 +1204,60 @@ runEvaluate mvarCtx req = do
     logRequest $ show req
 
     runExceptT go >>= \case
+      Right _  -> return ()
+      Left err -> sendErrRes mvarCtx req err
+
+  where
+
+    go = getProcExcept mvarCtx >>= runDap
+
+    runDap proc = do
+      let cmd  = ":dap-evaluate"
+          args = J.argumentsEvaluateRequest req
+          dapArgs = showDAP args
+
+      liftIO (G.dapCommand2 proc (outHdl mvarCtx req) cmd dapArgs) >>= exceptIO
+
+
+    -- |
+    --
+    outHdl :: MVar DebugContextData -> J.EvaluateRequest -> String -> IO ()
+    outHdl mvarCtx req str = do
+      
+      infoM _LOG_NAME $ "[GHCi][STDOUT] " ++ str
+
+      if | U.startswith _DAP_HEADER str ->
+           dapHdl mvarCtx req $ drop (length _DAP_HEADER) str
+         | U.startswith _DAP_HEADER_OUTPUT_EVENT str ->
+           outputEventHandler mvarCtx $ drop (length _DAP_HEADER_OUTPUT_EVENT) str
+         | otherwise  -> return ()
+
+    -- |
+    --
+    dapHdl :: MVar DebugContextData -> J.EvaluateRequest -> String -> IO ()
+    dapHdl mvarCtx req str = case R.readEither str of
       Left err -> do
-        resSeq <- getIncreasedResponseSequence mvarCtx
-        let res = J.errorEvaluateResponse resSeq req err 
-            resStr = J.encode res
-        sendResponse mvarCtx resStr
-      Right body -> do
+        errorM _LOG_NAME $ "read response body failed. " ++ err ++ " : " ++ str
+        sendErrRes  mvarCtx req err
+
+      Right (Left err) -> do
+        errorM _LOG_NAME $ "evaluateRequestHandlerDAP failed. " ++ err ++ " : " ++ str
+        sendErrRes  mvarCtx req err
+
+      Right (Right body) -> do
         resSeq <- getIncreasedResponseSequence mvarCtx
         let res    = J.defaultEvaluateResponse resSeq req
             resStr = J.encode res { J.bodyEvaluateResponse = body }
         sendResponse mvarCtx resStr
 
-  where
-
-    go = getProcExcept mvarCtx >>= runDap >>= readExcept >>= exceptIO
-
-    runDap proc = do
-      let cmd  = ":dap-evaluate"
-          args = J.argumentsEvaluateRequest req
-          ctx  = J.contextEvaluateArguments args
-          hdl  = if "repl" == ctx then outHdl else outHdl
-          dapArgs = showDAP args
-
-      liftIO (G.dapCommand proc hdl cmd dapArgs) >>= exceptIO
-
-    --replHdl = outHdlDAP mvarCtx
-    outHdl  = debugM _LOG_NAME
-
+    -- |
+    --
+    sendErrRes :: MVar DebugContextData -> J.EvaluateRequest -> String -> IO ()
+    sendErrRes mvarCtx req err = do
+      resSeq <- getIncreasedResponseSequence mvarCtx
+      let res = J.errorEvaluateResponse resSeq req err 
+          resStr = J.encode res
+      sendResponse mvarCtx resStr
 
 
 -- |=====================================================================
