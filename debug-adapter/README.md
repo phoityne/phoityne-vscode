@@ -6,12 +6,12 @@ Phoityne is a Haskell GHCi debug adapter for Visual Studio Code.
 
 
 ## Information
-* [2018/02/11] phoityne-vscode released.  
+* [2018/06/01] phoityne-vscode released.  
   * Marketplace [phoityne-vscode-0.0.19](https://marketplace.visualstudio.com/items?itemName=phoityne.phoityne-vscode)
-  * hackage [phoityne-vscode-0.0.22.0](https://hackage.haskell.org/package/phoityne-vscode)  
+  * hackage [phoityne-vscode-0.0.24.0](https://hackage.haskell.org/package/phoityne-vscode)  
   __Need update from hackage !!.__
 * Release Summary
-  * [UPDATE] supported haskell-dap-0.0.3.0
+  * [UPDATE] supported haskell-dap-0.0.5.0
 
 ![10_quick_start.gif](https://raw.githubusercontent.com/phoityne/phoityne-vscode/master/docs/10_quick_start.gif)  
 (This sample project is available from [here](https://github.com/phoityne/stack-project-template).)
@@ -112,6 +112,7 @@ There are limitations and additional installation.
 * supportsExceptionInfoRequest : no
 * supportTerminateDebuggee : no
 * supportsDelayedStackTraceLoading : no
+* supportsLogPoints : **yes** (by haskell-dap)
 
 
 ## Install

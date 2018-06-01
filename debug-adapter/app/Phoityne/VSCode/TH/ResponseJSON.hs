@@ -5,7 +5,6 @@ module Phoityne.VSCode.TH.ResponseJSON where
 
 import Data.Aeson.TH
 
-import Phoityne.VSCode.TH.RequestJSON 
 import Phoityne.VSCode.Utility
 
 -- |
