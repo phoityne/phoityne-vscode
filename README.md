@@ -11,7 +11,7 @@ Here is a portal repository to Haskell Debugging System.
 
 ### Haskell Debugger
 
-- [haskell-debugger-adapter](https://github.com/phoityne/haskell-debug-adapter) : The Debug Adapter for Haskell GHCi
+- [haskell-debug-adapter](https://github.com/phoityne/haskell-debug-adapter) : The Debug Adapter for Haskell GHCi
 - [haskell-dap](https://github.com/phoityne/haskell-dap) : Debug Adapter Protocol implementation on Haskell GHCi
 
 ### GUI Extensions
