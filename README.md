@@ -2,24 +2,22 @@
 
 # Phoityne VSCode
 
-[Phoityne is a ghci debug viewer for Visual Studio Code.](https://marketplace.visualstudio.com/items?itemName=phoityne.phoityne-vscode)
+Here is a portal repository to Haskell Debugging System.
 
 ## Architecture
 
-_preparing_
 
-## How to build
+![architecture.png](https://raw.githubusercontent.com/phoityne/phoityne-vscode/master/docs/11_architecture.png)  
 
-### debug-adapter
+### Haskell Debugger
 
-    % git clone 
-    %
-    % stack build
-    %
+- [haskell-debugger-adapter](https://github.com/phoityne/haskell-debug-adapter) : The Debug Adapter for Haskell GHCi
+- [haskell-dap](https://github.com/phoityne/haskell-dap) : Debug Adapter Protocol implementation on Haskell GHCi
 
-### vscode-extension
+### GUI Extensions
 
-    % vsce package 
-    %
+- [hdx4vsc](https://github.com/phoityne/hdx4vsc) : Haskell Debugger Extension for Visual Studio Code.
+- [hdx4vs](https://github.com/phoityne/hdx4vs) : Haskell Debugger Extension for Visual Studio.
+
 
 
